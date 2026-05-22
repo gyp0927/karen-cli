@@ -8,7 +8,7 @@ A general-purpose coding assistant CLI inspired by Claude Code, built with TypeS
 
 ## Features
 
-- **Multi-Model Support**: Switch between Anthropic (Claude) and OpenAI (GPT-4o) providers
+- **Multi-Model Support**: Switch between Anthropic (Claude), OpenAI (GPT-4o), and Silicon Flow (DeepSeek) providers
 - **Interactive REPL**: Persistent conversation session with command history
 - **7 Core Tools**: Read, Write, Edit, Bash, Grep, Glob, Agent (sub-agent delegation)
 - **Permission System**: User confirmation required for sensitive operations (Bash, Write, Edit)
@@ -43,8 +43,11 @@ export ANTHROPIC_API_KEY=sk-ant-...
 # For OpenAI
 export OPENAI_API_KEY=sk-...
 
+# For Silicon Flow
+export SILICONFLOW_API_KEY=sk-...
+
 # Optional: specify preferred provider
-export KAREN_PROVIDER=anthropic  # or 'openai'
+export KAREN_PROVIDER=anthropic  # or 'openai', 'siliconflow'
 ```
 
 ## Usage
@@ -62,7 +65,7 @@ node dist/bin/karen.js
 ```
 > hello world           # Send message to AI
 > /exit                 # Quit the session
-> /model claude         # Switch provider
+> /model claude         # Switch provider (claude, openai, siliconflow)
 > /tools                # List available tools
 > /tasks                # Show task graph status
 > /help                 # Show help
@@ -116,7 +119,7 @@ Goodbye!
 └─────────────┘      └────────────────┘
         │
 ┌───────┴─────────────────────────────────┐
-│     Model Provider (Anthropic/OpenAI)    │
+│  Model Provider (Anthropic/OpenAI/SiliconFlow) │
 └─────────────────────────────────────────┘
 ```
 
@@ -136,7 +139,8 @@ karen-cli/
 │   │   └── commands.ts       # Command parser
 │   ├── providers/
 │   │   ├── anthropic.ts      # Claude provider
-│   │   └── openai.ts         # OpenAI provider
+│   │   ├── openai.ts         # OpenAI provider
+│   │   └── siliconflow.ts    # Silicon Flow provider
 │   ├── tools/
 │   │   ├── registry.ts       # Tool registry
 │   │   ├── read.ts           # Read file
@@ -196,7 +200,7 @@ npm run dev
 
 The project uses Node.js built-in test runner with `tsx` for TypeScript execution:
 
-- **76 tests** across **18 test suites**
+- **78 tests** across **19 test suites**
 - All tests pass with zero regressions
 - TDD approach: every feature is tested before implementation
 
@@ -209,7 +213,7 @@ npm test
 - **Runtime**: Node.js 20+
 - **Language**: TypeScript 5.7
 - **Test Runner**: `node:test` (built-in) + `tsx`
-- **LLM SDKs**: `@anthropic-ai/sdk`, `openai`
+- **LLM SDKs**: `@anthropic-ai/sdk`, `openai` (also used for SiliconFlow compatibility)
 - **Module System**: ESM
 
 ## License

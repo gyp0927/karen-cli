@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { AnthropicProvider } from '../src/providers/anthropic.js';
 import { OpenAIProvider } from '../src/providers/openai.js';
+import { SiliconFlowProvider } from '../src/providers/siliconflow.js';
 import { AgentLoop } from '../src/core/loop.js';
 import { Repl } from '../src/cli/repl.js';
 import { Logger } from '../src/utils/logger.js';
@@ -16,6 +17,7 @@ import { PermissionManager } from '../src/permissions/manager.js';
 function getProvider() {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
+  const siliconflowKey = process.env.SILICONFLOW_API_KEY;
   const preferred = process.env.KAREN_PROVIDER || 'anthropic';
 
   if (preferred === 'anthropic' && anthropicKey) {
@@ -24,14 +26,20 @@ function getProvider() {
   if (preferred === 'openai' && openaiKey) {
     return new OpenAIProvider(openaiKey);
   }
+  if (preferred === 'siliconflow' && siliconflowKey) {
+    return new SiliconFlowProvider(siliconflowKey);
+  }
   if (anthropicKey) {
     return new AnthropicProvider(anthropicKey);
   }
   if (openaiKey) {
     return new OpenAIProvider(openaiKey);
   }
+  if (siliconflowKey) {
+    return new SiliconFlowProvider(siliconflowKey);
+  }
 
-  Logger.error('No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.');
+  Logger.error('No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or SILICONFLOW_API_KEY.');
   process.exit(1);
 }
 
