@@ -54,10 +54,34 @@ export KAREN_PROVIDER=anthropic  # or 'openai', 'siliconflow'
 
 ### Start the CLI
 
+**Option 1: Direct run (no setup)**
 ```bash
 npm start
 # or
 node dist/bin/karen.js
+```
+
+**Option 2: Global `karen` command**
+
+Add the project directory to your system `PATH`, then you can run `karen` from anywhere:
+
+**Windows (CMD):**
+```cmd
+setx PATH "%PATH%;E:\karen-cli"
+```
+Then open a new terminal and run:
+```cmd
+karen
+```
+
+**Windows (PowerShell):**
+```powershell
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";E:\karen-cli", "User")
+```
+
+**Linux/macOS:**
+```bash
+export PATH="$PATH:/path/to/karen-cli"
 ```
 
 ### REPL Commands
@@ -129,6 +153,8 @@ Goodbye!
 karen-cli/
 ├── bin/
 │   └── karen.ts              # CLI entry point
+├── karen.cmd                 # Windows command wrapper
+├── karen.ps1                 # PowerShell wrapper
 ├── src/
 │   ├── core/
 │   │   ├── types.ts          # Core type definitions
