@@ -1,5 +1,5 @@
 import { BaseProvider } from './base.js';
-import { Message, ProviderResponse, ToolDefinition } from '../core/types.js';
+import { Message, ProviderResponse, ToolDefinition, StreamChunk } from '../core/types.js';
 import Anthropic from '@anthropic-ai/sdk';
 
 export class AnthropicProvider extends BaseProvider {
@@ -53,5 +53,51 @@ export class AnthropicProvider extends BaseProvider {
         total: response.usage.input_tokens + response.usage.output_tokens,
       } : undefined,
     };
+  }
+
+  async *streamChat(messages: Message[], tools?: ToolDefinition[]): AsyncGenerator<StreamChunk, void, unknown> {
+    const stream = await this.client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: this.formatMessages(messages),
+      tools: tools?.map(t => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.parameters as Anthropic.Tool.InputSchema,
+      })),
+      stream: true,
+    });
+
+    const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>();
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta') {
+        if (event.delta.type === 'text_delta') {
+          yield { type: 'text', content: event.delta.text };
+        } else if (event.delta.type === 'input_json_delta') {
+          const index = event.index;
+          if (toolCallBuffers.has(index)) {
+            toolCallBuffers.get(index)!.args += event.delta.partial_json;
+          }
+        }
+      } else if (event.type === 'content_block_start') {
+        if (event.content_block.type === 'tool_use') {
+          toolCallBuffers.set(event.index, {
+            id: event.content_block.id,
+            name: event.content_block.name,
+            args: JSON.stringify(event.content_block.input || {}),
+          });
+        }
+      }
+    }
+
+    if (toolCallBuffers.size > 0) {
+      const calls = Array.from(toolCallBuffers.values()).map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: JSON.parse(tc.args || '{}'),
+      }));
+      yield { type: 'tool_calls', tool_calls: calls };
+    }
   }
 }

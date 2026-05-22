@@ -19,9 +19,17 @@ export interface ToolResult {
   error?: string;
 }
 
+export interface StreamChunk {
+  type: 'text' | 'tool_calls';
+  content?: string;
+  tool_calls?: ToolCall[];
+}
+
 export interface IProvider {
   name: string;
+  model: string;
   chat(messages: Message[], tools?: ToolDefinition[]): Promise<ProviderResponse>;
+  streamChat?(messages: Message[], tools?: ToolDefinition[]): AsyncGenerator<StreamChunk, void, unknown>;
 }
 
 export interface ProviderResponse {

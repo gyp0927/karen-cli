@@ -5,6 +5,7 @@ import { IProvider, ProviderResponse, Tool } from '../../../src/core/types.js';
 
 class MockProvider implements IProvider {
   name = 'mock';
+  readonly model = 'mock-model';
   private responses: ProviderResponse[];
   private callCount = 0;
 
