@@ -51,6 +51,9 @@ export class Repl {
   }
 
   private async handleInput(input: string): Promise<void> {
+    // Clear readline's prompt + input line to avoid duplicate display
+    process.stdout.write('\x1b[1A\x1b[2K');
+
     const cols = process.stdout.columns || 80;
     const width = Math.max(40, Math.min(cols - 2, 100));
     const userColor = '\x1b[1;34m';
