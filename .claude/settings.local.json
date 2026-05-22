@@ -42,7 +42,9 @@
       "Bash(cmd /c \"D:\\\\node\\\\node.exe -e console.log\\(123\\)\")",
       "Bash(echo \"EXIT: $?\")",
       "Bash(cmd /c \"D:\\\\node\\\\node.exe -e \\\\\"require\\('fs'\\).writeFileSync\\('test_out.txt', 'hello'\\)\\\\\"\")",
-      "Bash(cmd /c simple.bat)"
+      "Bash(cmd /c simple.bat)",
+      "Bash(gh --version)",
+      "Bash(gh auth *)"
     ]
   }
 }
