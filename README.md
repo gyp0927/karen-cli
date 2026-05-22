@@ -200,7 +200,7 @@ npm run dev
 
 The project uses Node.js built-in test runner with `tsx` for TypeScript execution:
 
-- **78 tests** across **19 test suites**
+- **83 tests** across **20 test suites**
 - All tests pass with zero regressions
 - TDD approach: every feature is tested before implementation
 

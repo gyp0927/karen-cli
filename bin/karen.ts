@@ -5,6 +5,10 @@ import { SiliconFlowProvider } from '../src/providers/siliconflow.js';
 import { AgentLoop } from '../src/core/loop.js';
 import { Repl } from '../src/cli/repl.js';
 import { Logger } from '../src/utils/logger.js';
+import { printBanner } from '../src/cli/banner.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 import { createReadTool } from '../src/tools/read.js';
 import { createWriteTool } from '../src/tools/write.js';
@@ -65,9 +69,23 @@ function getPermissionManager(): PermissionManager {
   });
 }
 
+function getVersion(): string {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const pkgPath = join(__dirname, '..', '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
 async function main() {
   const provider = getProvider();
-  Logger.info(`Using provider: ${provider.name}`);
+  const version = getVersion();
+
+  printBanner(provider, version);
 
   const tools = [
     createReadTool(),

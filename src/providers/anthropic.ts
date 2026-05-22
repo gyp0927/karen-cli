@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 export class AnthropicProvider extends BaseProvider {
   name = 'anthropic';
+  readonly model = 'claude-sonnet-4-6';
   private client: Anthropic;
 
   constructor(apiKey: string) {

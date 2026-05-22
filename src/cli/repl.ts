@@ -17,11 +17,12 @@ export class Repl {
     this.rl = createInterface({
       input: process.stdin,
       output: process.stdout,
-      prompt: '> ',
+      prompt: '[1;32m>[0m ',
     });
   }
 
   async start(): Promise<void> {
+    console.log('');
     this.rl.prompt();
 
     for await (const line of this.rl) {

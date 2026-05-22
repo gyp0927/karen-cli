@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 
 export class OpenAIProvider extends BaseProvider {
   name = 'openai';
+  readonly model = 'gpt-4o';
   private client: OpenAI;
 
   constructor(apiKey: string) {

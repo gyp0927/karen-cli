@@ -5,7 +5,7 @@ import OpenAI from 'openai';
 export class SiliconFlowProvider extends BaseProvider {
   name = 'siliconflow';
   private client: OpenAI;
-  private model: string;
+  readonly model: string;
 
   constructor(apiKey: string, model = 'deepseek-ai/DeepSeek-V3') {
     super();
