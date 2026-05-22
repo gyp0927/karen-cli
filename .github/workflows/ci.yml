@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Fix executable permissions
+        run: chmod +x node_modules/.bin/*
+
       - name: Type check
         run: npm run lint
 

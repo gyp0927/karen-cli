@@ -11,10 +11,10 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/bin/karen.js",
-    "test": "npx tsx --test tests/**/*.test.ts",
-    "test:unit": "npx tsx --test tests/unit/**/*.test.ts",
-    "test:integration": "npx tsx --test tests/integration/**/*.test.ts",
-    "test:e2e": "npx tsx --test tests/e2e/**/*.test.ts",
+    "test": "tsx --test tests/**/*.test.ts",
+    "test:unit": "tsx --test tests/unit/**/*.test.ts",
+    "test:integration": "tsx --test tests/integration/**/*.test.ts",
+    "test:e2e": "tsx --test tests/e2e/**/*.test.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
