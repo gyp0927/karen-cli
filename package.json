@@ -1,0 +1,32 @@
+{
+  "name": "karen-cli",
+  "version": "0.1.0",
+  "description": "A general-purpose coding assistant CLI inspired by Claude Code",
+  "type": "module",
+  "main": "dist/bin/karen.js",
+  "bin": {
+    "karen": "dist/bin/karen.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/bin/karen.js",
+    "test": "node --test dist/tests/**/*.test.js",
+    "test:unit": "node --test dist/tests/unit/**/*.test.js",
+    "test:integration": "node --test dist/tests/integration/**/*.test.js",
+    "test:e2e": "node --test dist/tests/e2e/**/*.test.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.22.3",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

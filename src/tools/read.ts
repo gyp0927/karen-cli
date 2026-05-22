@@ -3,8 +3,8 @@ import { Tool, ToolResult } from '../core/types.js';
 
 export function createReadTool(): Tool {
   return {
-    name: 'read',
-    description: 'Read the contents of a file at a given path.',
+    name: 'Read',
+    description: 'Read the contents of a file.',
     parameters: {
       type: 'object',
       properties: {

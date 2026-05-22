@@ -3,8 +3,8 @@ import { Tool, ToolResult } from '../core/types.js';
 
 export function createBashTool(): Tool {
   return {
-    name: 'bash',
-    description: 'Execute a bash command',
+    name: 'Bash',
+    description: 'Execute a shell command.',
     parameters: {
       type: 'object',
       properties: {
