@@ -27,14 +27,14 @@ describe('HookManager', () => {
 
     await manager.trigger('post-tool', { toolName: 'Read', result: 'ok' });
     assert.ok(receivedContext);
-    assert.strictEqual(receivedContext!.toolName, 'Read');
+    assert.strictEqual((receivedContext as Record<string, unknown>).toolName, 'Read');
   });
 
   it('should call multiple hooks in registration order', async () => {
     const order: number[] = [];
-    manager.register('pre-message', () => order.push(1));
-    manager.register('pre-message', () => order.push(2));
-    manager.register('pre-message', () => order.push(3));
+    manager.register('pre-message', () => { order.push(1); });
+    manager.register('pre-message', () => { order.push(2); });
+    manager.register('pre-message', () => { order.push(3); });
 
     await manager.trigger('pre-message', {});
     assert.deepStrictEqual(order, [1, 2, 3]);
@@ -53,7 +53,7 @@ describe('HookManager', () => {
 
   it('should unregister a hook', async () => {
     let count = 0;
-    const callback = () => count++;
+    const callback = () => { count++; };
     manager.register('pre-message', callback);
     manager.unregister('pre-message', callback);
 
