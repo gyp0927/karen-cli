@@ -100,6 +100,10 @@ async function main() {
     provider,
     tools,
     permissionManager: getPermissionManager(),
+    onToolUse: (toolName: string, args: Record<string, unknown>) => {
+      const argStr = JSON.stringify(args).slice(0, 80);
+      console.log(`\x1b[33m\n🛠️  Using ${toolName} → ${argStr}\x1b[0m`);
+    },
   });
 
   const repl = new Repl({ loop });

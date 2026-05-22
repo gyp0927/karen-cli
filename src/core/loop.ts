@@ -5,6 +5,7 @@ import { PermissionManager } from '../permissions/manager.js';
 export interface AgentLoopConfig extends LoopConfig {
   permissionManager?: PermissionManager;
   onStream?: (chunk: string) => void;
+  onToolUse?: (toolName: string, args: Record<string, unknown>) => void;
 }
 
 export class AgentLoop {
@@ -13,12 +14,14 @@ export class AgentLoop {
   private maxIterations: number;
   private permissionManager: PermissionManager;
   private onStream?: (chunk: string) => void;
+  private onToolUse?: (toolName: string, args: Record<string, unknown>) => void;
 
   constructor(config: AgentLoopConfig) {
     this.provider = config.provider;
     this.maxIterations = config.maxIterations || 25;
     this.permissionManager = config.permissionManager || new PermissionManager();
     this.onStream = config.onStream;
+    this.onToolUse = config.onToolUse;
     this.registry = new ToolRegistry();
     for (const tool of config.tools) {
       this.registry.register(tool);
@@ -34,10 +37,12 @@ export class AgentLoop {
   }
 
   async run(userInput: string, onStream?: (chunk: string) => void): Promise<string> {
+    const toolList = this.registry.list().map(t => `- ${t.name}: ${t.description}`).join('\n');
+
     const messages: Message[] = [
       {
         role: 'system',
-        content: 'You are karen-cli, a helpful coding assistant. Use tools when needed.',
+        content: `You are karen-cli, an AI coding assistant running inside a terminal. You have direct access to the user's file system and can execute commands.\n\nCRITICAL: When the user asks you to read, write, edit, search, or execute anything, you MUST use the available tools. Do NOT just describe what you would do - actually do it by calling the appropriate tool.\n\nAvailable tools:\n${toolList}\n\nRules:\n1. If user asks to create/modify/read a file → use the appropriate file tool immediately\n2. If user asks to run a command → use Bash tool immediately\n3. If user asks to search → use Grep or Glob tool immediately\n4. Always use tools to take action, never just describe the action`,
       },
       { role: 'user', content: userInput },
     ];
@@ -68,6 +73,7 @@ export class AgentLoop {
         // Handle tool calls after streaming
         const toolResults: Message[] = [];
         for (const tc of toolCalls) {
+          this.onToolUse?.(tc.name, tc.arguments);
           const tool = this.registry.get(tc.name);
           let result: ToolResult;
 
@@ -107,6 +113,7 @@ export class AgentLoop {
           const toolResults: Message[] = [];
 
           for (const tc of response.tool_calls) {
+            this.onToolUse?.(tc.name, tc.arguments);
             const tool = this.registry.get(tc.name);
             let result: ToolResult;
 
