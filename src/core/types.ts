@@ -50,7 +50,7 @@ export interface Tool {
 }
 
 export interface LoopConfig {
-  maxIterations: number;
+  maxIterations?: number;
   provider: IProvider;
   tools: Tool[];
 }
