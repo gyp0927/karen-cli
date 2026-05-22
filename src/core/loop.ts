@@ -25,6 +25,14 @@ export class AgentLoop {
     }
   }
 
+  getProviderInfo(): { name: string; model: string } {
+    return { name: this.provider.name, model: this.provider.model };
+  }
+
+  getTools(): Tool[] {
+    return this.registry.list();
+  }
+
   async run(userInput: string, onStream?: (chunk: string) => void): Promise<string> {
     const messages: Message[] = [
       {

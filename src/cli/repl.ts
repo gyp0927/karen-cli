@@ -37,7 +37,7 @@ export class Repl {
           this.running = false;
           break;
         }
-        await this.handleCommand(cmd);
+        await this.handleCommand(cmd, input);
       } else {
         await this.handleInput(input);
       }
@@ -118,21 +118,64 @@ export class Repl {
     }
   }
 
-  private async handleCommand(cmd: ReturnType<typeof parseCommand>): Promise<void> {
+  private async handleCommand(cmd: ReturnType<typeof parseCommand>, input: string): Promise<void> {
     if (!cmd) return;
+
+    // Clear readline line
+    process.stdout.write('\x1b[1A\x1b[2K');
+
+    const cols = process.stdout.columns || 80;
+    const width = Math.max(40, Math.min(cols - 2, 100));
+    const gray = '\x1b[90m';
+    const reset = '\x1b[0m';
+
+    // Show command in a system box
+    const sysTop = '┌' + '─'.repeat(4) + ' Command ' + '─'.repeat(width - 13) + '┐';
+    const sysBot = '└' + '─'.repeat(width - 2) + '┘';
+
+    const lines: string[] = [];
     switch (cmd.type) {
       case 'help':
-        console.log('Commands: /exit, /model <name>, /tools, /tasks, /help');
+        lines.push('Available commands:');
+        lines.push('  /exit          Quit the session');
+        lines.push('  /model         Show current provider and model');
+        lines.push('  /tools         List available tools');
+        lines.push('  /tasks         Show task graph status');
+        lines.push('  /help          Show this help');
         break;
-      case 'model':
-        console.log('Model switching not yet implemented.');
+      case 'model': {
+        const info = this.loop.getProviderInfo();
+        lines.push(`Provider: ${info.name}`);
+        lines.push(`Model:    ${info.model}`);
         break;
-      case 'tools':
-        console.log('Tool listing not yet implemented.');
+      }
+      case 'tools': {
+        const tools = this.loop.getTools();
+        if (tools.length === 0) {
+          lines.push('No tools registered.');
+        } else {
+          lines.push('Available tools:');
+          for (const tool of tools) {
+            lines.push(`  • ${tool.name}: ${tool.description}`);
+          }
+        }
         break;
+      }
       case 'tasks':
-        console.log('Task listing not yet implemented.');
+        lines.push('Task graph not yet active.');
+        lines.push('Tasks are created when you ask the AI to do multi-step work.');
         break;
+      default:
+        lines.push('Unknown command.');
     }
+
+    console.log('');
+    console.log(gray + sysTop + reset);
+    for (const line of lines) {
+      const pad = width - 4 - line.length;
+      console.log(gray + '│ ' + line + ' '.repeat(Math.max(0, pad)) + ' │' + reset);
+    }
+    console.log(gray + sysBot + reset);
+    console.log('');
   }
 }
