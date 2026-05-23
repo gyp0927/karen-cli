@@ -24,8 +24,8 @@ describe('AgentLoop', () => {
       { content: 'Hello there' },
     ]);
     const loop = new AgentLoop({ provider, tools: [] });
-    const result = await loop.run('Say hi');
-    assert.strictEqual(result, 'Hello there');
+    const { content } = await loop.run('Say hi');
+    assert.strictEqual(content, 'Hello there');
   });
 
   it('should execute tool call and return result', async () => {
@@ -52,9 +52,9 @@ describe('AgentLoop', () => {
     ]);
 
     const loop = new AgentLoop({ provider, tools: [mockTool] });
-    const result = await loop.run('Use tool');
+    const { content } = await loop.run('Use tool');
     assert.strictEqual(toolExecuted, true);
-    assert.strictEqual(result, 'Done with tool');
+    assert.strictEqual(content, 'Done with tool');
   });
 
   it('should respect max iterations', async () => {
