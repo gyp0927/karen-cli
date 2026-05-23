@@ -30,5 +30,8 @@ Thumbs.db
 .env
 .env.local
 
+# Temporary command output
+*.txt
+
 # TypeScript
 *.tsbuildinfo
