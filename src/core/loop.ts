@@ -344,7 +344,7 @@ EXAMPLES of correct behavior:
       }
 
       // Repeat guard: detect looping on identical tool calls
-      const guardResult = this.repeatGuard?.check(responseToolCalls);
+      const guardResult = this.repeatGuard?.check(responseToolCalls || []);
       if (guardResult?.forceExit) {
         const warning = guardResult.warning || '[repeat-loop guard] Repeated identical tool calls detected. Stopping loop.';
         this.transcriptLogger?.logError(warning);
