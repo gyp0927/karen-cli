@@ -21,6 +21,20 @@ export class OpenAIProvider extends BaseProvider {
           tool_call_id: m.tool_call_id || '',
         };
       }
+      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+        return {
+          role: 'assistant',
+          content: m.content,
+          tool_calls: m.tool_calls.map(tc => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.arguments),
+            },
+          })),
+        };
+      }
       return {
         role: m.role as 'user' | 'assistant' | 'system',
         content: m.content,
@@ -40,6 +54,7 @@ export class OpenAIProvider extends BaseProvider {
           parameters: t.parameters,
         },
       })),
+      tool_choice: 'auto',
     });
 
     const choice = response.choices[0];
@@ -73,6 +88,7 @@ export class OpenAIProvider extends BaseProvider {
         },
       })),
       stream: true,
+      stream_options: { include_usage: true },
     });
 
     const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>();
@@ -81,7 +97,21 @@ export class OpenAIProvider extends BaseProvider {
       const delta = chunk.choices[0]?.delta;
 
       if (delta?.content) {
-        yield { type: 'text', content: delta.content };
+        const text = delta.content;
+        if (text && text.length > 0) {
+          yield { type: 'text', content: text };
+        }
+      }
+
+      if (chunk.usage) {
+        yield {
+          type: 'usage',
+          usage: {
+            prompt: chunk.usage.prompt_tokens,
+            completion: chunk.usage.completion_tokens,
+            total: chunk.usage.total_tokens,
+          },
+        };
       }
 
       if (delta?.tool_calls) {
@@ -109,6 +139,16 @@ export class OpenAIProvider extends BaseProvider {
         }));
         yield { type: 'tool_calls', tool_calls: calls };
       }
+    }
+
+    // Fallback: some providers emit tool call deltas but finish_reason is not 'tool_calls'
+    if (toolCallBuffers.size > 0) {
+      const calls = Array.from(toolCallBuffers.values()).map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: JSON.parse(tc.args || '{}'),
+      }));
+      yield { type: 'tool_calls', tool_calls: calls };
     }
   }
 }

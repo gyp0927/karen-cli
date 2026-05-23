@@ -74,7 +74,7 @@ describe('AgentLoop', () => {
     };
 
     const loop = new AgentLoop({ provider, tools: [mockTool], maxIterations: 2 });
-    const result = await loop.run('Loop test');
-    assert.ok(result.includes('max') || result.includes('limit') || result.includes('iteration'));
+    const { content } = await loop.run('Loop test');
+    assert.ok(content.includes('max') || content.includes('limit') || content.includes('iteration'));
   });
 });

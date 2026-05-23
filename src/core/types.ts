@@ -20,9 +20,10 @@ export interface ToolResult {
 }
 
 export interface StreamChunk {
-  type: 'text' | 'tool_calls';
+  type: 'text' | 'tool_calls' | 'usage';
   content?: string;
   tool_calls?: ToolCall[];
+  usage?: TokenUsage;
 }
 
 export interface IProvider {

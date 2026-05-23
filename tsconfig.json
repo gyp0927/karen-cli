@@ -11,7 +11,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "lib": ["ES2024"]
+    "lib": ["ES2024", "DOM"]
   },
   "include": ["bin/**/*", "src/**/*", "tests/**/*"],
   "exclude": ["node_modules", "dist"]

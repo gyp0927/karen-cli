@@ -98,8 +98,9 @@ describe('SkillLoader', () => {
     assert.strictEqual(skills.length, 0);
   });
 
-  it('should ignore non-JSON files', () => {
+  it('should ignore non-JSON and non-MD files', () => {
     writeFileSync(join(testDir, 'readme.md'), '# Skills');
+    writeFileSync(join(testDir, 'script.js'), 'console.log("no")');
     writeFileSync(join(testDir, 'valid.json'), JSON.stringify({
       name: 'valid', description: 'V', trigger: ['v'], prompt: 'P',
     }));
@@ -107,5 +108,126 @@ describe('SkillLoader', () => {
     const skills = loader.loadFromDirectory(testDir);
     assert.strictEqual(skills.length, 1);
     assert.strictEqual(skills[0].name, 'valid');
+  });
+
+  describe('Markdown skill support', () => {
+    it('should load a .md skill with YAML frontmatter', () => {
+      const md = `---
+name: debug
+description: Debug a failing test
+trigger: [debug, fix test]
+version: 1.0.0
+author: karen
+---
+
+## Process
+
+1. Reproduce the bug first
+2. Identify the minimal failing case
+3. Check logs and error traces
+`;
+      writeFileSync(join(testDir, 'debug.md'), md);
+
+      const skill = loader.loadFromFile(join(testDir, 'debug.md'));
+      assert.ok(skill);
+      assert.strictEqual(skill!.name, 'debug');
+      assert.strictEqual(skill!.description, 'Debug a failing test');
+      assert.deepStrictEqual(skill!.trigger, ['debug', 'fix test']);
+      assert.ok(skill!.prompt.includes('Reproduce the bug'));
+      assert.strictEqual(skill!.version, '1.0.0');
+      assert.strictEqual(skill!.author, 'karen');
+    });
+
+    it('should load a .md skill with block array syntax', () => {
+      const md = `---
+name: refactor
+description: Refactor code
+trigger:
+  - refactor
+  - clean up
+  - improve
+---
+
+Always suggest modern best practices. Focus on readability and performance.
+`;
+      writeFileSync(join(testDir, 'refactor.md'), md);
+
+      const skill = loader.loadFromFile(join(testDir, 'refactor.md'));
+      assert.ok(skill);
+      assert.deepStrictEqual(skill!.trigger, ['refactor', 'clean up', 'improve']);
+      assert.ok(skill!.prompt.includes('readability'));
+    });
+
+    it('should load .md and .json skills from the same directory', () => {
+      writeFileSync(join(testDir, 'json-skill.json'), JSON.stringify({
+        name: 'json-skill',
+        description: 'From JSON',
+        trigger: ['json'],
+        prompt: 'JSON prompt',
+      }));
+
+      const md = `---
+name: md-skill
+description: From Markdown
+trigger: [md]
+---
+
+Markdown prompt.
+`;
+      writeFileSync(join(testDir, 'md-skill.md'), md);
+
+      const skills = loader.loadFromDirectory(testDir);
+      assert.strictEqual(skills.length, 2);
+      assert.ok(skills.some(s => s.name === 'json-skill'));
+      assert.ok(skills.some(s => s.name === 'md-skill'));
+    });
+
+    it('should return null for markdown without required fields', () => {
+      const md = `---
+name: incomplete
+description: Missing trigger and prompt
+---
+
+Some body text.
+`;
+      writeFileSync(join(testDir, 'incomplete.md'), md);
+
+      const skill = loader.loadFromFile(join(testDir, 'incomplete.md'));
+      assert.strictEqual(skill, null);
+    });
+
+    it('should handle comma-separated trigger string', () => {
+      const md = `---
+name: test-skill
+description: Test
+trigger: test, TDD, unit test
+---
+
+Test prompt.
+`;
+      writeFileSync(join(testDir, 'test.md'), md);
+
+      const skill = loader.loadFromFile(join(testDir, 'test.md'));
+      assert.ok(skill);
+      assert.deepStrictEqual(skill!.trigger, ['test', 'TDD', 'unit test']);
+    });
+
+    it('should handle JSON frontmatter in markdown', () => {
+      const md = `---
+{
+  "name": "json-frontmatter",
+  "description": "Using JSON frontmatter",
+  "trigger": ["json"]
+}
+---
+
+Prompt here.
+`;
+      writeFileSync(join(testDir, 'json-frontmatter.md'), md);
+
+      const skill = loader.loadFromFile(join(testDir, 'json-frontmatter.md'));
+      assert.ok(skill);
+      assert.strictEqual(skill!.name, 'json-frontmatter');
+    });
   });
 });

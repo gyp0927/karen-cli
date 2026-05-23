@@ -3,4 +3,7 @@ export interface Skill {
   description: string;
   trigger: string[];
   prompt: string;
+  version?: string;
+  author?: string;
+  tags?: string[];
 }

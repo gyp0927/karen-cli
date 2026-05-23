@@ -1,6 +1,7 @@
 export class Logger {
   static info(msg: string): void {
-    console.log(`[INFO] ${msg}`);
+    // Diagnostic logs go to stderr so they never corrupt stdout UI (boxes, streams)
+    console.error(`[INFO] ${msg}`);
   }
 
   static error(msg: string): void {
@@ -9,7 +10,11 @@ export class Logger {
 
   static debug(msg: string): void {
     if (process.env.DEBUG) {
-      console.log(`[DEBUG] ${msg}`);
+      console.error(`[DEBUG] ${msg}`);
     }
+  }
+
+  static warn(msg: string): void {
+    console.warn(`[WARN] ${msg}`);
   }
 }
