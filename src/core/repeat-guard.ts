@@ -26,9 +26,10 @@ export class RepeatGuard {
     this.config = config;
   }
 
-  check(calls: ToolCall[]): RepeatGuardResult {
+  check(calls: ToolCall[] | undefined): RepeatGuardResult {
+    const safeCalls = calls || [];
     const now = Date.now();
-    const fingerprints = calls.map((c) => this.fingerprint(c));
+    const fingerprints = safeCalls.map((c) => this.fingerprint(c));
 
     // Remove entries outside the window (by count, not time)
     if (this.history.length > this.config.windowSize) {
