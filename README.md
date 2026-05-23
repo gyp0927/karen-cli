@@ -1,78 +1,159 @@
-# karen-cli
+# karen-cli / 凯伦命令行
 
-A general-purpose coding assistant CLI inspired by Claude Code, built with TypeScript and Node.js.
+> A general-purpose coding assistant CLI inspired by Claude Code, built with TypeScript and Node.js.
+>
+> 受 Claude Code 启发的通用编程助手命令行工具，使用 TypeScript 与 Node.js 构建。
 
-**Model makes decisions, Harness executes.**
+**Model makes decisions, Harness executes.** / **模型做决策，工具链执行。**
 
 [![CI](https://github.com/gyp0927/karen-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/gyp0927/karen-cli/actions/workflows/ci.yml)
 
-## Features
+---
 
-- **Multi-Model Support**: Switch between Anthropic (Claude), OpenAI (GPT-4o), and Silicon Flow (DeepSeek) providers
-- **Interactive REPL**: Persistent conversation session with command history
-- **7 Core Tools**: Read, Write, Edit, Bash, Grep, Glob, Agent (sub-agent delegation)
-- **Permission System**: User confirmation required for sensitive operations (Bash, Write, Edit)
-- **Memory System**: Persistent storage of project context, user preferences, and feedback
-- **Task Graph**: Multi-step task tracking with dependency management
-- **Skill Loader**: Custom skill definitions with keyword-based triggering
-- **Hooks System**: Lifecycle hooks for extensibility (pre-message, post-tool, pre-exit, etc.)
-- **Context Compaction**: Smart context management with sliding window and truncation
+## Table of Contents / 目录
 
-## Installation
+- [Features / 功能特性](#features--功能特性)
+- [Installation / 安装](#installation--安装)
+- [Configuration / 配置](#configuration--配置)
+- [Usage / 使用](#usage--使用)
+- [Architecture / 架构](#architecture--架构)
+- [Project Structure / 项目结构](#project-structure--项目结构)
+- [Development / 开发](#development--开发)
+
+---
+
+## Features / 功能特性
+
+- **Multi-Model Support / 多模型支持**  
+  Switch between Anthropic (Claude), OpenAI (GPT-4o), and Silicon Flow (DeepSeek).  
+  支持 Anthropic (Claude)、OpenAI (GPT-4o)、Silicon Flow (DeepSeek) 三种提供商一键切换。
+
+- **Streaming Full-Width REPL / 流式全宽交互界面**  
+  Persistent conversation with real-time streaming, box-based UI, and zero blank-line tolerance.  
+  持久会话，实时流式输出，框线 UI，零空格容忍。
+
+- **12+ Core Tools / 12+ 核心工具**  
+  Read, Write, Edit, Bash, Grep, Glob, Git, WebSearch, WebFetch, Weather, MCP, Agent, Task, Skill, Plan, BackgroundJob.  
+  读、写、编辑、命令行、搜索、匹配、Git、网页搜索、网页抓取、天气、MCP、子代理、任务、技能、计划、后台作业。
+
+- **Permission System / 权限系统**  
+  Arrow-key Yes/No selector for sensitive operations; auto-approve Write/Edit; dangerous Bash requires confirmation.  
+  敏感操作使用方向键选择是/否；自动批准写入/编辑；危险命令需确认。
+
+- **Plan Tool / 计划工具**  
+  Structured multi-step decomposition with user approval before execution.  
+  结构化多步任务分解，执行前需用户审批。
+
+- **BackgroundJob / 后台作业**  
+  Detached spawn with ready-pattern detection, ring-buffer output, and graceful cleanup.  
+  独立进程启动，支持就绪模式检测、环形缓冲区输出、优雅退出。
+
+- **Repeat Guard / 重复调用防护**  
+  Fingerprint-based detection of identical tool calls within a sliding window.  
+  基于指纹的滑动窗口重复调用检测，防止模型死循环。
+
+- **Four-Layer Memory / 四层记忆栈**  
+  Project (30d), Global (90d), User (permanent), Skill (180d) with dedup and auto-summarize.  
+  项目(30天)、全局(90天)、用户(永久)、技能(180天)四层记忆，自动去重与摘要。
+
+- **Task Graph / 任务图**  
+  Multi-step task tracking with dependency management.  
+  多步任务追踪与依赖管理。
+
+- **Skill Manager / 技能管理器**  
+  Install custom skills from URL or local files with keyword-based triggering.  
+  从 URL 或本地文件安装自定义技能，支持关键词触发。
+
+- **Prefix Cache / 前缀缓存**  
+  Split static system prompt from dynamic messages to reduce token cost.  
+  将静态系统提示与动态消息分离，降低 Token 消耗。
+
+- **Storm Breaker / 熔断重试**  
+  120s request timeout, 60s stream chunk timeout, exponential backoff.  
+  120秒请求超时、60秒流式块超时、指数退避重试。
+
+- **Tool-Call Repair / 工具调用修复**  
+  Fix truncated JSON, missing braces, and invalid escapes from models like DeepSeek.  
+  修复来自 DeepSeek 等模型的截断 JSON、缺失括号、无效转义。
+
+- **Schema Flattening / 模式扁平化**  
+  DeepSeek-compatible schema transformation for reliable tool calling.  
+  DeepSeek 兼容的模式转换，确保工具调用稳定。
+
+- **Local Tokenizer / 本地分词器**  
+  CJK-aware heuristic token estimation for budget gating.  
+  中日韩感知的启发式 Token 估算，用于预算控制。
+
+- **Cost Tracking / 成本追踪**  
+  Session-level token and cost tracking with configurable budget limits.  
+  会话级 Token 与成本追踪，支持预算上限配置。
+
+- **Transcript Logger / 会话记录器**  
+  JSONL event sourcing for replay and debugging.  
+  JSONL 事件溯源，支持回放与调试。
+
+- **Context Compaction / 上下文压缩**  
+  Smart context management with sliding window and truncation.  
+  滑动窗口与截断策略的智能上下文管理。
+
+---
+
+## Installation / 安装
 
 ```bash
-# Clone the repository
+# Clone the repository / 克隆仓库
 git clone https://github.com/gyp0927/karen-cli.git
 cd karen-cli
 
-# Install dependencies
+# Install dependencies / 安装依赖
 npm install
 
-# Build
+# Build / 构建
 npm run build
 ```
 
-## Configuration
+---
 
-Set your API keys as environment variables:
+## Configuration / 配置
+
+Set your API keys as environment variables:  
+将 API 密钥设置为环境变量：
 
 ```bash
-# For Anthropic (default)
+# For Anthropic (default) / Anthropic（默认）
 export ANTHROPIC_API_KEY=sk-ant-...
 
-# For OpenAI
+# For OpenAI / OpenAI
 export OPENAI_API_KEY=sk-...
 
-# For Silicon Flow
+# For Silicon Flow / Silicon Flow
 export SILICONFLOW_API_KEY=sk-...
 
-# Optional: specify preferred provider
+# Optional: specify preferred provider / 可选：指定默认提供商
 export KAREN_PROVIDER=anthropic  # or 'openai', 'siliconflow'
 ```
 
-## Usage
+---
 
-### Start the CLI
+## Usage / 使用
 
-**Option 1: Direct run (no setup)**
+### Start the CLI / 启动
+
+**Option 1: Direct run / 直接运行**
 ```bash
 npm start
 # or
 node dist/bin/karen.js
 ```
 
-**Option 2: Global `karen` command**
-
-Add the project directory to your system `PATH`, then you can run `karen` from anywhere:
+**Option 2: Global `karen` command / 全局命令**
 
 **Windows (CMD):**
 ```cmd
 setx PATH "%PATH%;E:\karen-cli"
 ```
-Then open a new terminal and run:
-```cmd
-karen
-```
+Then open a new terminal and run `karen`.  
+然后打开新终端运行 `karen`。
 
 **Windows (PowerShell):**
 ```powershell
@@ -84,164 +165,210 @@ karen
 export PATH="$PATH:/path/to/karen-cli"
 ```
 
-### REPL Commands
+### REPL Commands / 交互命令
 
-```
-> hello world           # Send message to AI
-> /exit                 # Quit the session
-> /model claude         # Switch provider (claude, openai, siliconflow)
-> /tools                # List available tools
-> /tasks                # Show task graph status
-> /help                 # Show help
-```
+| Command / 命令 | Description / 说明 |
+|---|---|
+| `> hello world` | Send message to AI / 向 AI 发送消息 |
+| `> /exit` | Quit the session / 退出会话 |
+| `> /model <name>` | Switch provider (claude, openai, siliconflow) / 切换模型提供商 |
+| `> /tools` | List available tools / 列出可用工具 |
+| `> /tasks` | Show task graph status / 显示任务图状态 |
+| `> /plan` | Show or approve/discard plan / 查看或审批计划 |
+| `> /remember <text>` | Save to user memory (permanent) / 保存到用户记忆（永久） |
+| `> /forget <keyword>` | Delete matching memories / 删除匹配的记忆 |
+| `> /memory` | Show memory stats / 显示记忆统计 |
+| `> /skills` | List loaded skills / 列出已加载技能 |
+| `> /cost` | Show session cost / 显示会话成本 |
+| `> /help` | Show help / 显示帮助 |
 
-### Example Session
+### Example Session / 示例会话
 
 ```
 $ npm start
-Using provider: anthropic
+Using provider: anthropic / 使用提供商：anthropic
+
 > Read the package.json file
-[AI uses Read tool]
+[AI uses Read tool / AI 使用 Read 工具]
 { "name": "karen-cli", ... }
 
 > Find all test files
-[AI uses Glob tool]
+[AI uses Glob tool / AI 使用 Glob 工具]
 tests/unit/tools/read.test.ts
 ...
 
+> Start npm run dev in background
+[AI uses BackgroundJob tool / AI 使用 BackgroundJob 工具]
+Job job-1 started. PID: 12345
+
 > /exit
-Goodbye!
+Goodbye! / 再见！
 ```
 
-## Architecture
+---
+
+## Architecture / 架构
 
 ```
-┌─────────────────────────────────────────┐
-│           CLI Entry (bin/karen)          │
-└─────────────────────────────────────────┘
-                   │
-┌─────────────────────────────────────────┐
-│         REPL / Command Parser            │
-└─────────────────────────────────────────┘
-                   │
-┌─────────────────────────────────────────┐
-│          Agent Core Loop                 │
-│  (messages → model → tools → results)   │
-└─────────────────────────────────────────┘
-                   │
-    ┌──────────────┼──────────────┐
-    ▼              ▼              ▼
-┌────────┐   ┌──────────┐   ┌────────────┐
-│ Memory │   │  Task    │   │   Skill    │
-│ System │   │  Graph   │   │   Loader   │
-└────────┘   └──────────┘   └────────────┘
-                   │
-        ┌──────────┴──────────┐
-        ▼                     ▼
-┌─────────────┐      ┌────────────────┐
-│ Tool Registry│      │ Hook System    │
-└─────────────┘      └────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│              CLI Entry (bin/karen) / CLI 入口                │
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│           REPL / Command Parser / 交互与命令解析               │
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│              Agent Core Loop / 代理核心循环                   │
+│       (messages → model → tools → results / 消息→模型→工具→结果) │
+└─────────────────────────────────────────────────────────────┘
+                              │
+    ┌──────────────┬──────────────┬──────────────┬──────────────┐
+    ▼              ▼              ▼              ▼              ▼
+┌────────┐  ┌──────────┐  ┌────────────┐  ┌──────────┐  ┌──────────┐
+│ Memory │  │  Task    │  │   Skill    │  │  Plan    │  │  Prefix  │
+│ System │  │  Graph   │  │   Loader   │  │ Manager  │  │  Cache   │
+│ 记忆系统 │  │  任务图   │  │  技能加载器 │  │  计划管理器 │  │  前缀缓存  │
+└────────┘  └──────────┘  └────────────┘  └──────────┘  └──────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+┌─────────────┐      ┌────────────────┐    ┌──────────────┐
+│ Tool Registry│      │  Hook System   │    │   Storm      │
+│   工具注册表  │      │   钩子系统      │    │   Breaker    │
+│              │      │                │    │   熔断重试     │
+└─────────────┘      └────────────────┘    └──────────────┘
         │
-┌───────┴─────────────────────────────────┐
-│  Model Provider (Anthropic/OpenAI/SiliconFlow) │
-└─────────────────────────────────────────┘
+┌───────┴─────────────────────────────────────────────────────┐
+│  Model Provider (Anthropic/OpenAI/SiliconFlow) / 模型提供商  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Project Structure
+---
+
+## Project Structure / 项目结构
 
 ```
 karen-cli/
 ├── bin/
-│   └── karen.ts              # CLI entry point
-├── karen.cmd                 # Windows command wrapper
-├── karen.ps1                 # PowerShell wrapper
+│   └── karen.ts              # CLI entry point / CLI 入口
+├── karen.cmd                 # Windows wrapper / Windows 包装器
+├── karen.ps1                 # PowerShell wrapper / PowerShell 包装器
 ├── src/
 │   ├── core/
-│   │   ├── types.ts          # Core type definitions
-│   │   ├── loop.ts           # Agent core loop
-│   │   └── compaction.ts     # Context compaction
+│   │   ├── types.ts          # Core type definitions / 核心类型定义
+│   │   ├── loop.ts           # Agent core loop / 代理核心循环
+│   │   ├── cost.ts           # Cost tracking / 成本追踪
+│   │   ├── prefix-cache.ts   # Prefix cache / 前缀缓存
+│   │   ├── repair.ts         # Tool-call repair / 工具调用修复
+│   │   ├── repeat-guard.ts   # Repeat guard / 重复调用防护
+│   │   ├── schema-flatten.ts # Schema flattening / 模式扁平化
+│   │   ├── storm.ts          # Storm breaker / 熔断重试
+│   │   └── tokenizer.ts      # Local tokenizer / 本地分词器
 │   ├── cli/
-│   │   ├── repl.ts           # Interactive REPL
-│   │   └── commands.ts       # Command parser
+│   │   ├── repl.ts           # Interactive REPL / 交互式界面
+│   │   └── commands.ts       # Command parser / 命令解析器
 │   ├── providers/
-│   │   ├── anthropic.ts      # Claude provider
-│   │   ├── openai.ts         # OpenAI provider
-│   │   └── siliconflow.ts    # Silicon Flow provider
+│   │   ├── anthropic.ts      # Claude provider / Claude 提供商
+│   │   ├── openai.ts         # OpenAI provider / OpenAI 提供商
+│   │   └── siliconflow.ts    # SiliconFlow provider / SiliconFlow 提供商
 │   ├── tools/
-│   │   ├── registry.ts       # Tool registry
-│   │   ├── read.ts           # Read file
-│   │   ├── write.ts          # Write file
-│   │   ├── edit.ts           # Edit file
-│   │   ├── bash.ts           # Execute shell command
-│   │   ├── grep.ts           # Search files
-│   │   ├── glob.ts           # Match file patterns
-│   │   └── agent.ts          # Sub-agent delegation
+│   │   ├── index.ts          # Tool registry / 工具注册表
+│   │   ├── read.ts           # Read file / 读取文件
+│   │   ├── write.ts          # Write file / 写入文件
+│   │   ├── edit.ts           # Edit file / 编辑文件
+│   │   ├── bash.ts           # Execute command / 执行命令
+│   │   ├── grep.ts           # Search files / 搜索文件
+│   │   ├── glob.ts           # Match patterns / 匹配模式
+│   │   ├── git.ts            # Git operations / Git 操作
+│   │   ├── websearch.ts      # Web search / 网页搜索
+│   │   ├── webfetch.ts       # Web fetch / 网页抓取
+│   │   ├── weather.ts        # Weather query / 天气查询
+│   │   ├── mcp.ts            # MCP client / MCP 客户端
+│   │   ├── agent.ts          # Sub-agent / 子代理
+│   │   ├── task.ts           # Task management / 任务管理
+│   │   ├── skill.ts          # Skill operations / 技能操作
+│   │   ├── plan.ts           # Plan tool / 计划工具
+│   │   └── background-job.ts # Background jobs / 后台作业
 │   ├── permissions/
-│   │   ├── manager.ts        # Permission manager
-│   │   └── policies.ts       # Permission policies
+│   │   ├── manager.ts        # Permission manager / 权限管理器
+│   │   ├── policies.ts       # Permission policies / 权限策略
+│   │   └── trust.ts          # Full-trust mode / 全信任模式
 │   ├── memory/
-│   │   ├── types.ts          # Memory types
-│   │   └── manager.ts        # Memory storage/retrieval
+│   │   ├── types.ts          # Memory types / 记忆类型
+│   │   └── manager.ts        # Memory storage / 记忆存储
 │   ├── tasks/
-│   │   ├── types.ts          # Task types
-│   │   └── manager.ts        # Task graph manager
+│   │   ├── types.ts          # Task types / 任务类型
+│   │   └── manager.ts        # Task graph / 任务图管理
 │   ├── skills/
-│   │   ├── types.ts          # Skill types
-│   │   └── loader.ts         # Skill loader
-│   ├── hooks/
-│   │   ├── types.ts          # Hook types
-│   │   └── manager.ts        # Hook manager
+│   │   ├── types.ts          # Skill types / 技能类型
+│   │   ├── loader.ts         # Skill loader / 技能加载器
+│   │   └── manager.ts        # Skill manager / 技能管理器
+│   ├── plan/
+│   │   ├── types.ts          # Plan types / 计划类型
+│   │   └── manager.ts        # Plan manager / 计划管理器
+│   ├── jobs/
+│   │   └── manager.ts        # Job manager / 作业管理器
+│   ├── transcript/
+│   │   └── logger.ts         # Transcript logger / 会话记录器
 │   └── utils/
-│       └── logger.ts         # Logging utility
+│       └── logger.ts         # Logging utility / 日志工具
 ├── tests/
-│   ├── unit/                 # Unit tests
-│   ├── integration/          # Integration tests
-│   └── e2e/                  # End-to-end tests
+│   ├── unit/                 # Unit tests / 单元测试
+│   ├── integration/          # Integration tests / 集成测试
+│   └── e2e/                  # End-to-end tests / 端到端测试
 ├── .github/workflows/
-│   └── ci.yml                # GitHub Actions CI
+│   └── ci.yml                # GitHub Actions CI / 持续集成
 ├── package.json
 ├── tsconfig.json
 └── README.md
 ```
 
-## Development
+---
+
+## Development / 开发
 
 ```bash
-# Run tests
+# Run tests / 运行测试
 npm test
 
-# Run specific test suites
+# Run specific test suites / 运行特定测试套件
 npm run test:unit
 npm run test:integration
 npm run test:e2e
 
-# Type check
+# Type check / 类型检查
 npm run lint
 
-# Development mode (watch)
+# Development mode (watch) / 开发模式（监听）
 npm run dev
 ```
 
-## Testing
+### Testing / 测试
 
-The project uses Node.js built-in test runner with `tsx` for TypeScript execution:
+The project uses Node.js built-in test runner with `tsx` for TypeScript execution:  
+本项目使用 Node.js 内置测试运行器，配合 `tsx` 执行 TypeScript：
 
-- **83 tests** across **20 test suites**
-- All tests pass with zero regressions
-- TDD approach: every feature is tested before implementation
+- **83 tests** across **20 test suites** / **20 个测试套件，83 个测试用例**
+- All tests pass with zero regressions / 全部通过，零回归
+- TDD approach: every feature is tested before implementation / 测试驱动开发：每个功能先写测试再实现
 
 ```bash
 npm test
 ```
 
-## Tech Stack
+### Tech Stack / 技术栈
 
-- **Runtime**: Node.js 20+
-- **Language**: TypeScript 5.7
-- **Test Runner**: `node:test` (built-in) + `tsx`
-- **LLM SDKs**: `@anthropic-ai/sdk`, `openai` (also used for SiliconFlow compatibility)
-- **Module System**: ESM
+| Technology / 技术 | Description / 说明 |
+|---|---|
+| Node.js 20+ | Runtime / 运行时 |
+| TypeScript 5.7 | Language / 语言 |
+| `node:test` + `tsx` | Test runner / 测试运行器 |
+| `@anthropic-ai/sdk`, `openai` | LLM SDKs / 大模型 SDK |
+| ESM | Module system / 模块系统 |
 
-## License
+---
+
+## License / 许可证
 
 MIT
