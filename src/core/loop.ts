@@ -16,6 +16,10 @@ import { Logger } from '../utils/logger.js';
 import { PlanManager } from '../plan/manager.js';
 import { RepeatGuard } from './repeat-guard.js';
 import { TranscriptLogger } from '../transcript/logger.js';
+import { buildSystemPrompt } from './prompt.js';
+import { KarenMode, MODES, MODE_ORDER } from './modes.js';
+import { validateResult } from '../tools/validate.js';
+import { LIMITS, TIMEOUTS, DEFAULTS } from './constants.js';
 
 /** Wrap an async generator with a per-chunk read timeout. */
 async function* withStreamTimeout<T>(
@@ -24,11 +28,12 @@ async function* withStreamTimeout<T>(
   label: string
 ): AsyncGenerator<T> {
   while (true) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const result = await Promise.race([
-      generator.next(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`${label} stream stalled: no data for ${timeoutMs}ms`)), timeoutMs)
-      ),
+      generator.next().finally(() => { if (timer) clearTimeout(timer); }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} stream stalled: no data for ${timeoutMs}ms`)), timeoutMs);
+      }),
     ]);
     if (result.done) return result.value;
     yield result.value;
@@ -53,6 +58,7 @@ export interface AgentLoopConfig extends LoopConfig {
   planManager?: PlanManager;
   repeatGuard?: RepeatGuard;
   transcriptLogger?: TranscriptLogger;
+  mode?: KarenMode;
 }
 
 export class AgentLoop {
@@ -61,7 +67,7 @@ export class AgentLoop {
   private maxIterations: number;
   private permissionManager: PermissionManager;
   private onStream?: (chunk: string) => void;
-  private onToolUse?: (toolName: string, args: Record<string, unknown>) => void;
+  onToolUse?: (toolName: string, args: Record<string, unknown>) => void;
   onNeedPermission?: (toolName: string, args: Record<string, unknown>) => Promise<boolean>;
   private skills: Skill[];
   private cwd: string;
@@ -75,15 +81,15 @@ export class AgentLoop {
   private prefixCache: PrefixCache;
   private repair: ToolCallRepair;
   private enableSchemaFlatten: boolean;
-  private currentPrefixHash?: string;
   private runCounter = 0;
   private planManager?: PlanManager;
   private repeatGuard?: RepeatGuard;
   private transcriptLogger?: TranscriptLogger;
+  private mode: KarenMode = 'code';
 
   constructor(config: AgentLoopConfig) {
     this.provider = config.provider;
-    this.maxIterations = config.maxIterations || 10;
+    this.maxIterations = config.maxIterations || DEFAULTS.MAX_ITERATIONS;
     this.permissionManager = config.permissionManager || new PermissionManager();
     this.onStream = config.onStream;
     this.onToolUse = config.onToolUse;
@@ -103,6 +109,7 @@ export class AgentLoop {
     this.planManager = config.planManager;
     this.repeatGuard = config.repeatGuard;
     this.transcriptLogger = config.transcriptLogger;
+    this.mode = config.mode || 'code';
     this.registry = new ToolRegistry();
     for (const tool of config.tools) {
       this.registry.register(tool);
@@ -145,56 +152,18 @@ export class AgentLoop {
     return this.costTracker;
   }
 
-  private async buildSystemPrompt(toolList: string, skillPrompts: string): Promise<string> {
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-    const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  getMode(): KarenMode {
+    return this.mode;
+  }
 
-    let memoryContext = '';
-    if (this.memoryManager) {
-      try {
-        // Four-layer memory: project > global > user > skill
-        const projectMemories = await this.memoryManager.load({ type: 'project', keywords: [this.cwd] });
-        const globalMemories = await this.memoryManager.load({ type: 'global' });
-        const userMemories = await this.memoryManager.load({ type: 'user' });
-        const skillMemories = await this.memoryManager.load({ type: 'skill' });
+  setMode(mode: KarenMode): void {
+    this.mode = mode;
+  }
 
-        const allMemories = [
-          ...projectMemories.slice(0, 5),
-          ...globalMemories.slice(0, 3),
-          ...userMemories.slice(0, 2),
-          ...skillMemories.slice(0, 2),
-        ];
-
-        if (allMemories.length > 0) {
-          memoryContext = '\n\n--- Project Memory ---\n' + allMemories.map(m => m.summary || m.content).join('\n');
-        }
-      } catch { /* ignore */ }
-    }
-
-    return `You are karen-cli, an AI coding assistant running inside a terminal. You have direct access to the user's file system and can execute commands.\n\n=== TODAY'S ACTUAL DATE AND TIME: ${dateStr} ${timeStr} ===\nTHIS IS THE ONLY DATE YOU KNOW. You MUST use this exact date in all responses.\nYou DO NOT know what year, month, or day it is other than what is written above.\nIf you mention any date in your answer, it MUST be ${dateStr}.\nCurrent working directory: ${this.cwd}\n\nCRITICAL: When the user asks you to read, write, edit, search, or execute anything, you MUST use the available tools. Do NOT just describe what you would do - actually do it by calling the appropriate tool.\n\nAvailable tools:\n${toolList}\n\nRules:\n1. If user asks to create/modify/read a file → use the appropriate file tool immediately\n2. If user asks to run a command → use Bash tool immediately\n3. If user asks to search local files → use Grep or Glob tool immediately\n4. If user asks about git status/history/branches/changes → use Git tool immediately\n5. If user asks to install/remove/list skills → use the Skill tool immediately\n6. If user asks for weather or forecast → you MUST call the Weather tool immediately with the city name. Do NOT use WebSearch for weather queries.
-7. If user asks for general web information, current news, or online docs → you MUST call the WebSearch or WebFetch tool immediately.\n7. If user asks to undo a change or revert an edit → use Undo tool immediately\n8. If user asks about project structure or to find files by pattern → use Index tool with path='${this.cwd}' immediately\n9. If user asks to connect to external services (browser, DB, Slack) → use MCP tool immediately\n10. If user asks for complex multi-step work → use Task tool to create and track tasks, then execute them step by step\n11. If user asks to delegate a sub-task to another agent → use Agent tool immediately\n12. If user asks to review / audit / analyze / check / 审查 / 检查 / 看一下 / 分析一下 code or project WITHOUT specifying a path → immediately use Index tool on the current directory to scan project structure, then read relevant files. Do NOT ask the user for a path.\n13. If the user asks about "your project" or "this project" without specifying a path, they mean the project at the current working directory (${this.cwd})\n14. If user asks "这个项目是干嘛的" / "这是什么项目" / "介绍一下这个项目" → immediately use Read tool on README.md and package.json in ${this.cwd}, then summarize. Do NOT ask for a path.\n15. If user says "你自己去查" / "你自己去看" / "你自己找" → immediately use the most appropriate tool to find the answer. Do NOT ask the user for more information.\n16. Be EFFICIENT with tool calls: scan project structure once with Index, then read multiple files in parallel if possible. Avoid calling the same tool repeatedly for the same information.\n17. Always use tools to take action, never just describe the action
-18. You HAVE a memory system. The system automatically loads relevant memories into your context before each response. User preferences saved via /remember are permanent. Project memories expire after 30 days. When the user asks if you have memory, say YES and explain the memory layers (project, global, user, skill)
-19. If a task requires 3+ steps, risky changes, or parallel work → use Plan tool to submit a structured plan BEFORE acting. Wait for user approval before executing approved steps.
-20. If user asks to start a dev server, watcher, build, or any long-running command → use BackgroundJob tool with operation=spawn. Do NOT use Bash for long-running or indefinite processes.
-
-MANDATORY BEHAVIOR — VIOLATING THESE IS A BUG:
-- You are FORBIDDEN from saying phrases like "我来...", "让我...", "首先...", "现在...", "接下来...", "等一下...", "先看看..." or ANY preamble before a tool call.
-- If you output ANY text before calling a tool, that is WRONG. Call the tool FIRST with ZERO text beforehand.
-- When the user asks a question, your FIRST token must either be a tool call or the start of the final answer. NEVER output planning text.
-- You do NOT need to ask permission or confirm before calling a tool. Just call it.
-
-CRITICAL RULES for tool use:
-- When you receive tool results, you MUST immediately synthesize them into a final answer for the user. Do NOT call the same tool again for the same request.
-- If a tool returns an error or empty result, do NOT retry with the same tool. Tell the user the lookup failed and ask if they want to try something else.
-- If a web search returns results, read them carefully and answer the user directly. Do NOT say "let me search again" or "the data is outdated" — just present what you found.
-- NEVER describe what you are going to do. Either call the tool immediately, or give the final answer immediately.
-- ABSOLUTE MAXIMUM: you may only call WebSearch or WebFetch ONCE per user request. Multiple searches for the same query are strictly forbidden.
-
-EXAMPLES of correct behavior:
-- User: "今天沈阳的天气" → Assistant immediately calls Weather tool with {"city": "沈阳"}
-- User: "Search Node.js fetch docs" → Assistant immediately calls WebSearch tool with {"query": "Node.js fetch API documentation"}
-- User: "Show me project structure" → Assistant immediately calls Index tool with path="${this.cwd}"${skillPrompts}${memoryContext}`;
+  nextMode(): KarenMode {
+    const idx = MODE_ORDER.indexOf(this.mode);
+    this.mode = MODE_ORDER[(idx + 1) % MODE_ORDER.length];
+    return this.mode;
   }
 
   private getToolDefinitions() {
@@ -205,6 +174,13 @@ EXAMPLES of correct behavior:
     return defs;
   }
 
+  /**
+   * Execute one turn of the agent loop.
+   * @param userInput — the user's message
+   * @param onStream — optional callback for real-time streaming output
+   * @param history — previous conversation messages (for /resume)
+   * @returns final text content, full message list, and token usage
+   */
   async run(
     userInput: string,
     onStream?: (chunk: string) => void,
@@ -219,13 +195,18 @@ EXAMPLES of correct behavior:
       this.memoryManager.cleanup().catch(() => {});
     }
 
-    const toolList = this.registry.list().map(t => `- ${t.name}: ${t.description}`).join('\n');
+    const toolList = this.registry.list().map(t => {
+      // Truncate descriptions to first sentence for speed
+      const desc = t.description.split('.')[0] + '.';
+      return `- ${t.name}: ${desc}`;
+    }).join('\n');
 
-    // Match skills by trigger keywords
+    // Match skills by trigger keywords (uses pre-computed lowercase triggers)
     const lowerInput = userInput.toLowerCase();
-    const matchedSkills = this.skills.filter(skill =>
-      skill.trigger.some(t => lowerInput.includes(t.toLowerCase()))
-    );
+    const matchedSkills = this.skills.filter(skill => {
+      const triggers = skill._lowerTriggers || skill.trigger.map(t => t.toLowerCase());
+      return triggers.some(t => lowerInput.includes(t));
+    });
 
     let skillPrompts = '';
     if (matchedSkills.length > 0) {
@@ -234,28 +215,35 @@ EXAMPLES of correct behavior:
       ).join('\n\n');
     }
 
-    const systemContent = await this.buildSystemPrompt(toolList, skillPrompts);
+    const modePrompt = MODES[this.mode].behaviorPrompt;
+    const systemContent = await buildSystemPrompt({
+      cwd: this.cwd,
+      toolList,
+      skillPrompts,
+      memoryManager: this.memoryManager,
+      provider: this.provider.name,
+    });
+    // Inject mode behavior at the start of the prompt
+    const fullSystemContent = `[MODE: ${MODES[this.mode].emoji} ${MODES[this.mode].name}]\n${modePrompt}\n\n${systemContent}`;
 
     let messages: Message[] = [
-      { role: 'system', content: systemContent },
+      { role: 'system', content: fullSystemContent },
       ...(history || []),
       { role: 'user', content: userInput },
     ];
 
     // Token budget gate
     const tokenEst = this.tokenizer.estimateMessages(messages);
-    const MAX_BUDGET_TOKENS = 120_000; // reasonable ceiling
-    if (tokenEst.tokens > MAX_BUDGET_TOKENS) {
-      Logger.warn(`Estimated token count ${tokenEst.tokens} exceeds budget ${MAX_BUDGET_TOKENS}. Compacting...`);
+    if (tokenEst.tokens > LIMITS.MAX_TOKEN_BUDGET) {
+      Logger.warn(`Estimated token count ${tokenEst.tokens} exceeds budget ${LIMITS.MAX_TOKEN_BUDGET}. Compacting...`);
       if (this.compactor) {
         const compacted = this.compactor.compact(messages);
         messages = compacted.messages;
       }
     }
 
-    // Prefix cache: split system from dynamic messages
-    const cached = this.prefixCache.build(messages, systemContent, this.getToolDefinitions());
-    this.currentPrefixHash = cached.hash;
+    // Prefix cache: split system from dynamic messages for provider-level optimization
+    this.prefixCache.build(messages, fullSystemContent, this.getToolDefinitions());
 
     // Trigger pre-run hooks
     if (this.hookManager) {
@@ -263,13 +251,26 @@ EXAMPLES of correct behavior:
     }
 
     let totalUsage: TokenUsage | undefined;
+    let totalIterations = 0;
+    let batchIterations = 0;
 
-    for (let i = 0; i < this.maxIterations; i++) {
+    while (totalIterations < DEFAULTS.HARD_ITERATION_CAP) {
       // Compact context if needed
       if (this.compactor) {
         const compacted = this.compactor.compact(messages);
         if (compacted.dropped > 0) {
           messages = compacted.messages;
+        }
+      }
+
+      totalIterations++;
+      batchIterations++;
+
+      // Inject task/plan progress every 5 iterations to keep model on track
+      if (totalIterations > 1 && totalIterations % 5 === 0) {
+        const progressBlock = this.buildProgressBlock();
+        if (progressBlock) {
+          messages.push({ role: 'system', content: progressBlock });
         }
       }
 
@@ -288,7 +289,7 @@ EXAMPLES of correct behavior:
           );
 
           // Apply per-chunk read timeout to prevent infinite stalls
-          const stream = withStreamTimeout(rawStream, 60_000, 'streamChat');
+          const stream = withStreamTimeout(rawStream, TIMEOUTS.STREAM_CHUNK, 'streamChat');
 
           let content = '';
           let toolCalls: import('./types.js').ToolCall[] | undefined;
@@ -316,7 +317,7 @@ EXAMPLES of correct behavior:
           responseUsage = response.usage;
         }
       } catch (err) {
-        const msg = (err as Error).message;
+        const msg = err instanceof Error ? err.message : String(err);
         Logger.error(`Provider error: ${msg}`);
         this.transcriptLogger?.logError(msg);
         return { content: `Error: ${msg}`, messages, usage: totalUsage };
@@ -360,15 +361,16 @@ EXAMPLES of correct behavior:
         // Trim trailing/leading whitespace but preserve internal blank lines for markdown formatting.
         const cleanedContent = responseContent.trim();
         await this.saveMemory(userInput, cleanedContent);
+        await this.saveSession(messages);
         if (this.hookManager) {
           await this.hookManager.trigger('post-loop', { input: userInput, output: cleanedContent, cwd: this.cwd });
         }
         return { content: cleanedContent, messages, usage: totalUsage };
       }
 
-      // Handle tool calls
+      // Handle tool calls — execute independent calls in parallel
       const toolResults: Message[] = [];
-      for (const tc of responseToolCalls) {
+      const executeOne = async (tc: import('./types.js').ToolCall): Promise<Message> => {
         this.onToolUse?.(tc.name, tc.arguments);
         this.transcriptLogger?.logToolCall(tc.name, tc.arguments);
         const tool = this.registry.get(tc.name);
@@ -383,16 +385,32 @@ EXAMPLES of correct behavior:
           if (!allowed) {
             result = { success: false, output: '', error: `User denied permission for ${tc.name}` };
           } else {
-            result = await tool.execute(tc.arguments);
+            result = validateResult(await tool.execute(tc.arguments));
           }
         }
 
         this.transcriptLogger?.logToolResult(tc.name, result.success ? result.output : '', result.success ? undefined : result.error);
-        toolResults.push({
-          role: 'tool',
+        return {
+          role: 'tool' as const,
           content: result.success ? result.output : `Error: ${result.error}`,
           tool_call_id: tc.id,
-        });
+        };
+      };
+
+      // Execute all tool calls from this response in parallel
+      const settled = await Promise.allSettled(responseToolCalls.map(executeOne));
+      for (let i = 0; i < settled.length; i++) {
+        const s = settled[i];
+        const tcId = responseToolCalls[i]?.id || `error-${i}`;
+        if (s.status === 'fulfilled') {
+          toolResults.push(s.value);
+        } else {
+          toolResults.push({
+            role: 'tool',
+            content: `Error: Tool execution failed: ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`,
+            tool_call_id: tcId,
+          });
+        }
       }
 
       messages.push({
@@ -402,9 +420,71 @@ EXAMPLES of correct behavior:
       });
 
       messages.push(...toolResults);
+
+      // Batch exhausted — if using default maxIterations, inject continuation and keep going.
+      // If caller explicitly set a lower limit, respect it as a hard cap.
+      if (batchIterations >= this.maxIterations && this.maxIterations > DEFAULTS.MAX_ITERATIONS && totalIterations < DEFAULTS.HARD_ITERATION_CAP) {
+        batchIterations = 0;
+        const progress = this.buildProgressBlock();
+        messages.push({
+          role: 'system',
+          content: `[Batch limit reached after ${totalIterations} iterations. You are NOT done — continue the task.]\n${progress || ''}\nPick up exactly where you left off.`,
+        });
+      } else if (batchIterations >= this.maxIterations) {
+        break; // Hard cap — caller's explicit limit
+      }
     }
 
-    return { content: 'Error: Reached maximum iteration limit', messages, usage: totalUsage };
+    // Hard cap reached — return a useful summary
+    const finalContent = this.buildFinalSummary(messages);
+    return { content: finalContent, messages, usage: totalUsage };
+  }
+
+  /** Build a progress block from active Task/Plan state. */
+  private buildProgressBlock(): string | null {
+    const parts: string[] = [];
+
+    if (this.planManager?.hasPlan) {
+      const status = this.planManager.getStatus();
+      parts.push(`[Plan: ${status.completedSteps}/${status.totalSteps} steps completed]`);
+      if (status.currentStep) {
+        parts.push(`Current step: ${status.currentStep.title}`);
+      }
+    }
+
+    if (this.taskManager) {
+      const summary = this.taskManager.getSummary();
+      if (summary.total > 0) {
+        parts.push(`[Tasks: ${summary.completed}/${summary.total} done, ${summary.running} running, ${summary.pending} pending]`);
+      }
+    }
+
+    if (this.costTracker) {
+      const cost = this.costTracker.sessionCost();
+      const tokens = this.costTracker.totalTokens();
+      if (tokens.total > 0) {
+        parts.push(`[Session: ${tokens.total} tokens, $${cost.toFixed(4)}]`);
+      }
+    }
+
+    return parts.length > 0 ? parts.join(' | ') + '\nContinue with the next step. Do NOT re-do completed work.' : null;
+  }
+
+  /** Build a final summary when the iteration cap is reached. */
+  private buildFinalSummary(messages: Message[]): string {
+    const parts: string[] = ['[Maximum iterations reached. Here is a summary of what was done:]'];
+
+    if (this.planManager?.hasPlan) {
+      const status = this.planManager.getStatus();
+      parts.push(`Plan "${status.summary}": ${status.completedSteps}/${status.totalSteps} steps completed.`);
+    }
+
+    if (this.taskManager) {
+      const summary = this.taskManager.getSummary();
+      parts.push(`Tasks: ${summary.completed} completed, ${summary.failed} failed, ${summary.pending} remaining.`);
+    }
+
+    return parts.join('\n');
   }
 
   private mergeUsage(a?: TokenUsage, b?: TokenUsage): TokenUsage {
@@ -426,5 +506,53 @@ EXAMPLES of correct behavior:
         tags: ['conversation', this.cwd],
       });
     } catch { /* ignore */ }
+  }
+
+  private sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Cancel pending session save (call on shutdown). */
+  cancelPendingSaves(): void {
+    if (this.sessionSaveTimer) {
+      clearTimeout(this.sessionSaveTimer);
+      this.sessionSaveTimer = null;
+    }
+  }
+
+  private async saveSession(messages: Message[]): Promise<void> {
+    // Throttle: debounce to avoid excessive writes, always save latest state
+    if (this.sessionSaveTimer) {
+      clearTimeout(this.sessionSaveTimer);
+    }
+    const timer = setTimeout(async () => {
+      if (this.sessionSaveTimer !== timer) return; // A newer timer was set
+      this.sessionSaveTimer = null;
+      try {
+        const { writeFileSync, mkdirSync, existsSync } = await import('fs');
+        const { join } = await import('path');
+        const { homedir } = await import('os');
+        const dir = join(homedir(), '.karen');
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        const history = messages.filter(m => m.role === 'user' || m.role === 'assistant').slice(-50);
+        writeFileSync(join(dir, 'session.json'), JSON.stringify({ updatedAt: Date.now(), cwd: this.cwd, history }, null, 2), 'utf8');
+      } catch (err) {
+        Logger.debug(`Session save failed: ${err instanceof Error ? err.message : String(err)}`, 'loop');
+      }
+    }, 2000);
+    this.sessionSaveTimer = timer;
+  }
+
+  /** Load previous session history (for /resume). */
+  async loadSession(): Promise<Message[]> {
+    try {
+      const { readFileSync, existsSync } = await import('fs');
+      const { join } = await import('path');
+      const { homedir } = await import('os');
+      const path = join(homedir(), '.karen', 'session.json');
+      if (!existsSync(path)) return [];
+      const data = JSON.parse(readFileSync(path, 'utf8'));
+      return Array.isArray(data.history) ? data.history : [];
+    } catch {
+      return [];
+    }
   }
 }

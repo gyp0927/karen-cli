@@ -2,218 +2,145 @@
 import { AnthropicProvider } from '../src/providers/anthropic.js';
 import { OpenAIProvider } from '../src/providers/openai.js';
 import { SiliconFlowProvider } from '../src/providers/siliconflow.js';
-import { AgentLoop } from '../src/core/loop.js';
+import { DeepSeekProvider } from '../src/providers/deepseek.js';
 import { Repl } from '../src/cli/repl.js';
 import { Logger } from '../src/utils/logger.js';
 import { printBanner } from '../src/cli/banner.js';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { SkillLoader } from '../src/skills/loader.js';
-import { SkillManager } from '../src/skills/manager.js';
-
-import { createReadTool } from '../src/tools/read.js';
-import { createWriteTool } from '../src/tools/write.js';
-import { createEditTool } from '../src/tools/edit.js';
-import { createBashTool } from '../src/tools/bash.js';
-import { createGrepTool } from '../src/tools/grep.js';
-import { createGlobTool } from '../src/tools/glob.js';
-import { createSkillTool } from '../src/tools/skill.js';
-import { createWebFetchTool } from '../src/tools/webfetch.js';
-import { createWebSearchTool } from '../src/tools/websearch.js';
-import { createWeatherTool } from '../src/tools/weather.js';
-import { createGitTool } from '../src/tools/git.js';
-import { createUndoTool } from '../src/tools/edit.js';
-import { createIndexTool } from '../src/tools/index.js';
-import { createMcpTool } from '../src/tools/mcp.js';
-import { createPlanTool } from '../src/tools/plan.js';
-import { createBackgroundJobTool } from '../src/tools/background-job.js';
 import { promptTrust } from '../src/permissions/trust.js';
-import { IProvider } from '../src/core/types.js';
-import { MemoryManager } from '../src/memory/manager.js';
-import { TaskManager } from '../src/tasks/manager.js';
-import { HookManager } from '../src/hooks/manager.js';
-import { ContextCompactor } from '../src/core/compaction.js';
-import { createAgentTool } from '../src/tools/agent.js';
-import { createTaskTool } from '../src/tools/task.js';
-import { CostTracker } from '../src/core/cost.js';
-import { StormBreaker } from '../src/core/storm.js';
-import { PlanManager } from '../src/plan/manager.js';
-import { JobManager } from '../src/jobs/manager.js';
-import { RepeatGuard } from '../src/core/repeat-guard.js';
-import { TranscriptLogger } from '../src/transcript/logger.js';
+import type { IProvider } from '../src/core/types.js';
+import { createApp } from '../src/app.js';
+import { healthCheck } from '../src/core/health.js';
+import { loadConfig } from '../src/core/config.js';
 
 function createProvider(name: string): IProvider | null {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
-  const siliconflowKey = process.env.SILICONFLOW_API_KEY;
-
-  switch (name.toLowerCase()) {
-    case 'anthropic':
-      return anthropicKey ? new AnthropicProvider(anthropicKey) : null;
-    case 'openai':
-      return openaiKey ? new OpenAIProvider(openaiKey) : null;
-    case 'siliconflow':
-      return siliconflowKey ? new SiliconFlowProvider(siliconflowKey) : null;
-    default:
-      return null;
+  const config = loadConfig();
+  const apiKeys = config.apiKeys || {};
+  const key = process.env[`${name.toUpperCase()}_API_KEY`]
+    || (apiKeys as Record<string, string | undefined>)[name]
+    || process.env.ANTHROPIC_API_KEY; // fallback for legacy
+  const model = process.env.KAREN_MODEL || process.env[`${name.toUpperCase()}_MODEL`];
+  if (!key) return null;
+  switch (name) {
+    case 'anthropic': return new AnthropicProvider(key, model || undefined);
+    case 'openai': return new OpenAIProvider(key, model || undefined);
+    case 'siliconflow': return new SiliconFlowProvider(key, model || undefined);
+    case 'deepseek': return new DeepSeekProvider(key, model || undefined);
+    default: return null;
   }
 }
 
 function getProvider(): IProvider {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
-  const siliconflowKey = process.env.SILICONFLOW_API_KEY;
-  const preferred = process.env.KAREN_PROVIDER || 'anthropic';
-
-  if (preferred === 'anthropic' && anthropicKey) {
-    return new AnthropicProvider(anthropicKey);
+  const config = loadConfig();
+  // Config takes priority, env var is fallback
+  const preferred = config.provider || process.env.KAREN_PROVIDER || 'anthropic';
+  for (const name of [preferred, 'anthropic', 'openai', 'deepseek', 'siliconflow']) {
+    const p = createProvider(name);
+    if (p) return p;
   }
-  if (preferred === 'openai' && openaiKey) {
-    return new OpenAIProvider(openaiKey);
-  }
-  if (preferred === 'siliconflow' && siliconflowKey) {
-    return new SiliconFlowProvider(siliconflowKey);
-  }
-  if (anthropicKey) {
-    return new AnthropicProvider(anthropicKey);
-  }
-  if (openaiKey) {
-    return new OpenAIProvider(openaiKey);
-  }
-  if (siliconflowKey) {
-    return new SiliconFlowProvider(siliconflowKey);
-  }
-
-  Logger.error('No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or SILICONFLOW_API_KEY.');
+  Logger.error('No API key. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or SILICONFLOW_API_KEY.');
   process.exit(1);
 }
 
 function getVersion(): string {
   try {
     const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const pkgPath = join(__dirname, '..', '..', 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    return pkg.version || '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
+    const pkgPath = join(dirname(__filename), '..', '..', 'package.json');
+    return JSON.parse(readFileSync(pkgPath, 'utf-8')).version || '0.0.0';
+  } catch { return '0.0.0'; }
 }
 
 async function main() {
-  const cwd = process.cwd();
+  const args = process.argv.slice(2);
 
+  // CLI flags
+  if (args.includes('--version') || args.includes('-v')) {
+    console.log(`karen-cli v${getVersion()}`);
+    process.exit(0);
+  }
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`karen-cli v${getVersion()} — AI coding assistant\n`);
+    console.log('Usage: karen [flags]\n');
+    console.log('Flags:');
+    console.log('  --version, -v    Show version');
+    console.log('  --help, -h       Show this help');
+    console.log('  --model <name>          Start with specific model');
+    console.log('  --print <message>        Non-interactive: run one prompt and exit');
+    console.log('  --output-format json     JSON output (with --print)');
+    console.log('  --resume <id>            Resume from session');
+    console.log('\nEnvironment:');
+    console.log('  KAREN_PROVIDER        Default provider (anthropic/openai/deepseek/siliconflow)');
+    console.log('  ANTHROPIC_API_KEY     Claude API key');
+    console.log('  OPENAI_API_KEY        GPT-4o API key');
+    console.log('  SILICONFLOW_API_KEY   DeepSeek API key');
+    console.log('  KAREN_LOG_LEVEL       Log level (debug/info/warn/error)');
+    process.exit(0);
+  }
+
+  const modelArg = args.indexOf('--model');
+  if (modelArg !== -1 && args[modelArg + 1]) {
+    process.env.KAREN_MODEL = args[modelArg + 1];
+  }
+
+  // --print: non-interactive mode, returns result and exits
+  const printArg = args.indexOf('--print');
+  const printMessage = printArg !== -1 ? args[printArg + 1] || args.slice(printArg + 1).join(' ') : '';
+  const outputJson = args.includes('--output-format') && args[args.indexOf('--output-format') + 1] === 'json';
+  const resumeSession = args.indexOf('--resume');
+  const resumeId = resumeSession !== -1 ? args[resumeSession + 1] : undefined;
+
+  const cwd = process.cwd();
   const provider = getProvider();
   const version = getVersion();
 
-  const trusted = await promptTrust(cwd);
-  if (!trusted) {
+  if (!(await promptTrust(cwd))) process.exit(0);
+
+  healthCheck();
+
+  const { loop, skillManager, memoryManager, planManager, transcriptLogger, jobManager } = await createApp(provider, cwd);
+
+  // --print mode: run one turn and exit
+  if (printMessage) {
+    const history = resumeId ? await loop.loadSession() : [];
+    const { content } = await loop.run(printMessage, undefined, history);
+    if (outputJson) {
+      console.log(JSON.stringify({ result: content }));
+    } else {
+      console.log(content);
+    }
+    await transcriptLogger.flush();
     process.exit(0);
   }
 
   console.clear();
   printBanner(provider, version);
 
-  const skillManager = new SkillManager();
-  const memoryManager = new MemoryManager(join(homedir(), '.karen', 'memory'));
-  const taskManager = new TaskManager();
-  const hookManager = new HookManager();
-  const compactor = new ContextCompactor();
-  const costTracker = new CostTracker(
-    { dailyUsd: 10.0, sessionUsd: 5.0 },
-    join(homedir(), '.karen', 'costs.json')
-  );
-  const stormBreaker = new StormBreaker({
-    requestTimeoutMs: 120_000,
-    maxRetries: 3,
-    circuitThreshold: 5,
-  });
-  const planManager = new PlanManager();
-  const jobManager = new JobManager();
-  const repeatGuard = new RepeatGuard({ maxRepeats: 2, windowSize: 10 });
-  const transcriptLogger = new TranscriptLogger(cwd);
-
-  const tools = [
-    createReadTool(),
-    createWriteTool(),
-    createEditTool(),
-    createUndoTool(),
-    createBashTool(),
-    createGrepTool(),
-    createGlobTool(),
-    createWebFetchTool(),
-    createWebSearchTool(),
-    createWeatherTool(),
-    createGitTool(),
-    createIndexTool(),
-    createMcpTool(),
-    createTaskTool(taskManager),
-    createPlanTool(planManager),
-    createBackgroundJobTool(jobManager),
-  ];
-
-  // Register a hook to log tool usage
-  hookManager.register('post-loop', async (ctx) => {
-    const { input, output } = ctx as Record<string, string>;
-    if (input && output) {
-      await memoryManager.save({
-        type: 'feedback',
-        content: `Task: ${input}\nResult: ${output.slice(0, 500)}`,
-        tags: ['auto', 'hook'],
-      });
-    }
-  });
-
-  // Also load built-in skills
+  // Load built-in skills
   try {
     const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const builtinDir = join(__dirname, '..', 'skills');
-    const builtinLoader = new SkillLoader();
-    builtinLoader.loadFromDirectory(builtinDir);
-    for (const skill of builtinLoader.getAll()) {
-      // Built-in skills are already loaded if they exist in the directory;
-      // SkillManager loads from ~/.karen/skills by default.
-      // We skip merging here to avoid duplicates; users can install overrides.
+    const builtinDir = join(dirname(__filename), '..', 'skills');
+    const loader = new SkillLoader();
+    const builtins = loader.loadFromDirectory(builtinDir);
+    for (const s of builtins) {
+      const dest = join(homedir(), '.karen', 'skills', `${s.name}.json`);
+      if (!existsSync(dest)) writeFileSync(dest, JSON.stringify(s, null, 2), 'utf8');
     }
   } catch { /* ignore */ }
 
-  const skills = skillManager.getSkills();
-  if (skills.length > 0) {
-    console.log(`\x1b[90mLoaded ${skills.length} skill(s)\x1b[0m\n`);
-  }
-
-  const loop = new AgentLoop({
-    provider,
-    tools,
-    skills,
-    cwd: process.cwd(),
-    memoryManager,
-    taskManager,
-    hookManager,
-    compactor,
-    costTracker,
-    stormBreaker,
-    planManager,
-    repeatGuard,
-    transcriptLogger,
-    enableSchemaFlatten: true,
-    onToolUse: (_toolName: string, _args: Record<string, unknown>) => {
-      // Intentionally quiet: tool-use indicators written to stderr would
-      // interleave with the Assistant box drawn on stdout and break the
-      // layout. Progress is conveyed naturally by the model's own wording.
-    },
-  });
-
-  // Register the Skill tool so AI can install/remove skills via natural language
-  loop.addTool(createSkillTool(skillManager, () => {
-    loop.setSkills(skillManager.getSkills());
-  }));
-
-  // Register the Agent tool for sub-agent delegation
-  loop.addTool(createAgentTool(provider, loop.getTools()));
+  // Graceful shutdown
+  const shutdown = () => {
+    console.log('\n\x1b[90mShutting down...\x1b[0m');
+    loop.cancelPendingSaves();
+    try { transcriptLogger.flush(); } catch {}
+    try { jobManager.cleanup(); } catch {}
+    process.exit(0);
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 
   const repl = new Repl({
     loop,
@@ -221,10 +148,11 @@ async function main() {
     memoryManager,
     planManager,
     enablePermissionChecks: true,
-    onSwitchProvider: (name: string) => {
-      const provider = createProvider(name);
-      if (!provider) return false;
-      loop.setProvider(provider);
+    onSwitchProvider: (name: string, model?: string) => {
+      if (model) process.env[`${name.toUpperCase()}_MODEL`] = model;
+      const p = createProvider(name);
+      if (!p) return false;
+      loop.setProvider(p);
       return true;
     },
   });
@@ -232,6 +160,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  Logger.error(`Fatal error: ${err.message}`);
+  Logger.error(`Fatal: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

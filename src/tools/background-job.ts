@@ -1,6 +1,32 @@
 import { Tool, ToolResult } from '../core/types.js';
 import { JobManager } from '../jobs/manager.js';
 
+/** Reject commands that look dangerous or destructive. */
+function isDangerousCommand(command: string): { dangerous: boolean; reason?: string } {
+  const lower = command.toLowerCase().trim();
+  // Destructive file operations on system paths
+  if (/\brm\s+(-[rf].*)?\s*[/~$]/i.test(command)) {
+    return { dangerous: true, reason: 'Potentially destructive rm command targeting system paths.' };
+  }
+  // Disk/format operations
+  if (/\b(mkfs|fdisk|dd\s+if=\/dev)/i.test(lower)) {
+    return { dangerous: true, reason: 'Disk formatting or raw device write detected.' };
+  }
+  // Redirect to sensitive system files
+  if (/>\s*(\/etc\/|\/dev\/|~\/\.ssh\/|~\/\.aws\/|C:\\Windows\\)/i.test(command)) {
+    return { dangerous: true, reason: 'Redirecting output to sensitive system paths.' };
+  }
+  // sudo / su escalation
+  if (/\b(sudo|su\s+-)\b/i.test(lower)) {
+    return { dangerous: true, reason: 'Command requires privilege escalation (sudo/su).' };
+  }
+  // curl/wget piping to shell
+  if (/\b(curl|wget)\b.*\|.*\b(sh|bash|zsh|fish)\b/i.test(lower)) {
+    return { dangerous: true, reason: 'Piping network download directly to shell is unsafe.' };
+  }
+  return { dangerous: false };
+}
+
 export function createBackgroundJobTool(jobManager: JobManager): Tool {
   return {
     name: 'BackgroundJob',
@@ -43,12 +69,27 @@ export function createBackgroundJobTool(jobManager: JobManager): Tool {
         case 'spawn': {
           const command = String(args.command || '');
           const cwd = String(args.cwd || process.cwd());
-          const readyPattern = args.ready_pattern
-            ? new RegExp(String(args.ready_pattern), 'i')
-            : undefined;
+          let readyPattern: RegExp | undefined;
+          if (args.ready_pattern) {
+            const patternStr = String(args.ready_pattern).slice(0, 200); // limit length to prevent ReDoS
+            try {
+              readyPattern = new RegExp(patternStr, 'i');
+            } catch {
+              return { success: false, output: '', error: `Invalid ready_pattern regex: ${patternStr}` };
+            }
+          }
 
           if (!command) {
             return { success: false, output: '', error: 'spawn requires command.' };
+          }
+
+          const dangerCheck = isDangerousCommand(command);
+          if (dangerCheck.dangerous) {
+            return {
+              success: false,
+              output: '',
+              error: `⚠️ Dangerous command blocked: ${dangerCheck.reason}. Command: ${command}`,
+            };
           }
 
           try {

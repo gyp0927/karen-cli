@@ -13,10 +13,14 @@ export interface ToolCall {
   arguments: Record<string, unknown>;
 }
 
+export type ErrorCode = 'INVALID_INPUT' | 'NOT_FOUND' | 'PERMISSION_DENIED' | 'NETWORK_ERROR' | 'TIMEOUT' | 'RATE_LIMITED' | 'INTERNAL_ERROR';
+
 export interface ToolResult {
   success: boolean;
   output: string;
   error?: string;
+  /** Machine-readable error code for programmatic handling. */
+  errorCode?: ErrorCode;
 }
 
 export interface StreamChunk {

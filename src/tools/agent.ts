@@ -2,8 +2,17 @@ import { Tool, ToolResult, IProvider } from '../core/types.js';
 import { AgentLoop } from '../core/loop.js';
 import { StormBreaker } from '../core/storm.js';
 import { CostTracker } from '../core/cost.js';
+import { MemoryManager } from '../memory/manager.js';
+import { TaskManager } from '../tasks/manager.js';
+import { TranscriptLogger } from '../transcript/logger.js';
 
-export function createAgentTool(provider: IProvider, tools: Tool[]): Tool {
+export interface AgentToolOptions {
+  memoryManager?: MemoryManager;
+  taskManager?: TaskManager;
+  transcriptLogger?: TranscriptLogger;
+}
+
+export function createAgentTool(provider: IProvider, tools: Tool[], options: AgentToolOptions = {}): Tool {
   return {
     name: 'Agent',
     description: 'Delegate a sub-task to an isolated agent. Provide a clear task description. The sub-agent runs with its own context and cannot pollute the parent conversation.',
@@ -38,6 +47,9 @@ export function createAgentTool(provider: IProvider, tools: Tool[]): Tool {
             maxRetries: 2,
           }),
           costTracker: childCostTracker,
+          memoryManager: options.memoryManager,
+          taskManager: options.taskManager,
+          transcriptLogger: options.transcriptLogger,
           enableSchemaFlatten: true,
         });
 
@@ -49,7 +61,7 @@ export function createAgentTool(provider: IProvider, tools: Tool[]): Tool {
 
         return { success: true, output };
       } catch (err) {
-        return { success: false, output: '', error: (err as Error).message };
+        return { success: false, output: '', error: err instanceof Error ? err.message : String(err) };
       }
     },
   };

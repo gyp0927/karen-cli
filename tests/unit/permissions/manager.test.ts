@@ -14,7 +14,8 @@ describe('PermissionManager', () => {
     const pm = new PermissionManager({
       confirm: async () => { called = true; return true; },
     });
-    const allowed = await pm.check('Bash', { command: 'echo hi' });
+    // Use a dangerous command to ensure confirm is triggered
+    const allowed = await pm.check('Bash', { command: 'rm -rf /tmp/test' });
     assert.strictEqual(allowed, true);
     assert.strictEqual(called, true);
   });
@@ -23,7 +24,8 @@ describe('PermissionManager', () => {
     const pm = new PermissionManager({
       confirm: async () => false,
     });
-    const allowed = await pm.check('Bash', { command: 'echo hi' });
+    // Use a dangerous command to ensure confirm is triggered
+    const allowed = await pm.check('Bash', { command: 'rm -rf /tmp/test' });
     assert.strictEqual(allowed, false);
   });
 });

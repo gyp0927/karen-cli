@@ -104,7 +104,7 @@ describe('HookManager', () => {
 
     const errors = await manager.trigger('pre-message', {});
     assert.strictEqual(errors.length, 2);
-    assert.ok(errors.some(e => e.message.includes('hook 1 failed')));
-    assert.ok(errors.some(e => e.message.includes('hook 2 failed')));
+    assert.ok(errors.some(e => e instanceof Error && e.message.includes('hook 1 failed')));
+    assert.ok(errors.some(e => e instanceof Error && e.message.includes('hook 2 failed')));
   });
 });

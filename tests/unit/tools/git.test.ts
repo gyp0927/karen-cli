@@ -15,8 +15,8 @@ describe('Git tool', () => {
     mkdirSync(testDir, { recursive: true });
     tool = createGitTool();
 
-    // Initialize git repo
-    execSync('git init', { cwd: testDir });
+    // Initialize git repo with explicit branch name
+    execSync('git init --initial-branch=main', { cwd: testDir });
     execSync('git config user.email "test@test.com"', { cwd: testDir });
     execSync('git config user.name "Test"', { cwd: testDir });
   });
@@ -63,6 +63,11 @@ describe('Git tool', () => {
   });
 
   it('should show branch list', async () => {
+    // Git needs at least one commit for a branch to exist
+    writeFileSync(join(testDir, 'd.txt'), 'branch-test', 'utf8');
+    execSync('git add .', { cwd: testDir });
+    execSync('git commit -m "branch-test"', { cwd: testDir });
+
     const result = await tool.execute({ operation: 'branch', path: testDir });
     assert.strictEqual(result.success, true);
     assert.ok(result.output.includes('main') || result.output.includes('master'));

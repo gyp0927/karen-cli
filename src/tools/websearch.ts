@@ -1,4 +1,5 @@
 import { Tool, ToolResult } from '../core/types.js';
+import { resilientFetch } from '../utils/http.js';
 
 interface SearchResult {
   title: string;
@@ -66,23 +67,18 @@ export function createWebSearchTool(): Tool {
 
       try {
         const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-        const response = await fetch(searchUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html',
-          },
-          redirect: 'follow',
+        const result = await resilientFetch({
+          url: searchUrl,
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html' },
+          timeoutMs: 20_000,
+          maxRetries: 2,
         });
 
-        if (!response.ok) {
-          return {
-            success: false,
-            output: '',
-            error: `Search failed: HTTP ${response.status}`,
-          };
+        if (!result.ok) {
+          return { success: false, output: '', error: result.error || `Search failed: HTTP ${result.status}` };
         }
 
-        const html = await response.text();
+        const html = result.text;
         const results = parseDuckDuckGoResults(html);
 
         if (results.length === 0) {

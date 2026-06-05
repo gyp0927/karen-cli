@@ -5,19 +5,44 @@ const BOX_TR = '┐';
 const BOX_BL = '└';
 const BOX_BR = '┘';
 
+/** Get the display width of a string (CJK chars = 2 columns). */
+function displayWidth(str: string): number {
+  let w = 0;
+  for (const ch of str) {
+    const cp = ch.codePointAt(0) || 0;
+    // CJK Unified, Compatibility, Supplement, Kangxi, and fullwidth forms
+    if ((cp >= 0x1100 && cp <= 0x115F) || // Hangul Jamo
+        (cp >= 0x2E80 && cp <= 0xA4CF) || // CJK Radicals through Yi
+        (cp >= 0xAC00 && cp <= 0xD7A3) || // Hangul Syllables
+        (cp >= 0xF900 && cp <= 0xFAFF) || // CJK Compatibility
+        (cp >= 0xFE10 && cp <= 0xFE19) || // Vertical forms
+        (cp >= 0xFE30 && cp <= 0xFE6F) || // CJK Compatibility Forms
+        (cp >= 0xFF00 && cp <= 0xFF60) || // Fullwidth Forms
+        (cp >= 0xFFE0 && cp <= 0xFFE6) || // Fullwidth Signs
+        (cp >= 0x20000 && cp <= 0x2FFFF) || // CJK Extension B+ and Supplement
+        (cp >= 0x30000 && cp <= 0x3FFFF)) {
+      w += 2;
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
 function wrapText(text: string, width: number): string[] {
   const lines: string[] = [];
   const rawLines = text.split('\n');
+  const maxLineWidth = width - 4;
 
   for (const raw of rawLines) {
-    if (raw.length <= width - 4) {
+    if (displayWidth(raw) <= maxLineWidth) {
       lines.push(raw);
       continue;
     }
 
     let current = '';
     for (const char of raw) {
-      if ((current + char).length > width - 4) {
+      if (displayWidth(current + char) > maxLineWidth) {
         lines.push(current);
         current = char;
       } else {
@@ -49,7 +74,7 @@ export function printFrame(text: string, title?: string, color?: string): void {
 
   console.log(colorCode + top + reset);
   for (const line of lines) {
-    const pad = width - 4 - line.length;
+    const pad = width - 4 - displayWidth(line);
     console.log(colorCode + BOX_V + ' ' + line + ' '.repeat(Math.max(0, pad)) + ' ' + BOX_V + reset);
   }
   console.log(colorCode + BOX_BL + BOX_H.repeat(width - 2) + BOX_BR + reset);
@@ -71,7 +96,7 @@ export function printUserInput(text: string): void {
   console.log(colorCode + line + reset);
   const textLines = text.split('\n');
   for (const t of textLines) {
-    const pad = width - 4 - t.length;
+    const pad = width - 4 - displayWidth(t);
     console.log(colorCode + BOX_V + ' ' + t + ' '.repeat(Math.max(0, pad)) + ' ' + BOX_V + reset);
   }
 }

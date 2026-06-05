@@ -1,5 +1,6 @@
 import { Memory, MemoryInput, MemoryQuery, MemoryType, DEFAULT_TTL, SUMMARIZE_THRESHOLD, SUMMARY_MAX_LENGTH } from './types.js';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
+import { readFile, writeFile, readdir, unlink } from 'fs/promises';
 import { join } from 'path';
 import { randomUUID, createHash } from 'crypto';
 import { Logger } from '../utils/logger.js';
@@ -18,13 +19,13 @@ export class MemoryManager {
     return join(this.basePath, `${id}.json`);
   }
 
-  private writeMemory(memory: Memory): void {
-    writeFileSync(this.getFilePath(memory.id), JSON.stringify(memory, null, 2), 'utf8');
+  private async writeMemory(memory: Memory): Promise<void> {
+    await writeFile(this.getFilePath(memory.id), JSON.stringify(memory, null, 2), 'utf8');
   }
 
-  private readMemory(id: string): Memory | null {
+  private async readMemory(id: string): Promise<Memory | null> {
     try {
-      const content = readFileSync(this.getFilePath(id), 'utf8');
+      const content = await readFile(this.getFilePath(id), 'utf8');
       return JSON.parse(content) as Memory;
     } catch {
       return null;
@@ -81,7 +82,7 @@ export class MemoryManager {
       if (existing) {
         existing.updatedAt = now;
         existing.tags = [...new Set([...existing.tags, ...(input.tags || [])])];
-        this.writeMemory(existing);
+        await this.writeMemory(existing);
         Logger.debug(`Memory dedup: updated existing ${existing.id} instead of creating duplicate`);
         return existing;
       }
@@ -103,6 +104,7 @@ export class MemoryManager {
     const memory: Memory = {
       id: randomUUID(),
       type: input.type,
+      priority: input.priority,
       content: finalContent,
       summary,
       tags: input.tags || [],
@@ -112,13 +114,13 @@ export class MemoryManager {
       contentHash,
     };
 
-    this.writeMemory(memory);
+    await this.writeMemory(memory);
     Logger.debug(`Memory saved: ${memory.id} (type=${memory.type}, ttl=${ttlDays}d)`);
     return memory;
   }
 
   async update(id: string, updates: Partial<Omit<MemoryInput, 'type'>> & Partial<Pick<Memory, 'type'>>): Promise<Memory | null> {
-    const existing = this.readMemory(id);
+    const existing = await this.readMemory(id);
     if (!existing) return null;
 
     const now = Date.now();
@@ -138,7 +140,7 @@ export class MemoryManager {
       }
     }
 
-    this.writeMemory(updated);
+    await this.writeMemory(updated);
     return updated;
   }
 
@@ -148,7 +150,7 @@ export class MemoryManager {
 
   async delete(id: string): Promise<boolean> {
     try {
-      unlinkSync(this.getFilePath(id));
+      await unlink(this.getFilePath(id));
       return true;
     } catch {
       return false;
@@ -158,15 +160,15 @@ export class MemoryManager {
   /** Delete all expired memories. Returns count of deleted items. */
   async cleanup(): Promise<number> {
     const now = Date.now();
-    const files = readdirSync(this.basePath).filter(f => f.endsWith('.json'));
+    const files = (await readdir(this.basePath)).filter(f => f.endsWith('.json'));
     let deleted = 0;
 
     for (const file of files) {
       try {
-        const content = readFileSync(join(this.basePath, file), 'utf8');
+        const content = await readFile(join(this.basePath, file), 'utf8');
         const memory = JSON.parse(content) as Memory;
         if (memory.expiresAt && memory.expiresAt < now) {
-          unlinkSync(join(this.basePath, file));
+          await unlink(join(this.basePath, file));
           deleted++;
         }
       } catch {
@@ -182,12 +184,12 @@ export class MemoryManager {
 
   async load(query: MemoryQuery = {}): Promise<Memory[]> {
     const now = Date.now();
-    const files = readdirSync(this.basePath).filter(f => f.endsWith('.json'));
+    const files = (await readdir(this.basePath)).filter(f => f.endsWith('.json'));
     const memories: Memory[] = [];
 
     for (const file of files) {
       try {
-        const content = readFileSync(join(this.basePath, file), 'utf8');
+        const content = await readFile(join(this.basePath, file), 'utf8');
         const memory = JSON.parse(content) as Memory;
         memories.push(memory);
       } catch {
@@ -203,6 +205,8 @@ export class MemoryManager {
       }
 
       if (query.type && memory.type !== query.type) return false;
+
+      if (query.priority && memory.priority !== query.priority) return false;
 
       if (query.tags && query.tags.length > 0) {
         const hasTag = query.tags.some(tag => memory.tags.includes(tag));
@@ -237,6 +241,128 @@ export class MemoryManager {
     });
 
     return filtered;
+  }
+
+  /** Load memories with pagination support */
+  async loadPaged(query: MemoryQuery & { page?: number; pageSize?: number } = {}): Promise<{ memories: Memory[]; total: number; page: number; pageSize: number }> {
+    const all = await this.load(query);
+    const page = Math.max(1, query.page || 1);
+    const pageSize = Math.max(1, Math.min(100, query.pageSize || 20));
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+
+    return {
+      memories: all.slice(start, end),
+      total: all.length,
+      page,
+      pageSize,
+    };
+  }
+
+  /** Search memories with relevance scoring */
+  async search(query: string, options: { type?: MemoryType; limit?: number } = {}): Promise<Memory[]> {
+    const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 0);
+    if (keywords.length === 0) return [];
+
+    const all = await this.load({ type: options.type, includeExpired: false });
+
+    // Score each memory by keyword matches
+    const scored = all.map(memory => {
+      const text = `${memory.content} ${memory.summary || ''} ${memory.tags.join(' ')}`.toLowerCase();
+      let score = 0;
+
+      for (const kw of keywords) {
+        if (text.includes(kw)) {
+          score += 1;
+          // Bonus for matching in tags
+          if (memory.tags.some(t => t.toLowerCase().includes(kw))) {
+            score += 2;
+          }
+          // Bonus for matching at start of content
+          if (memory.content.toLowerCase().startsWith(kw)) {
+            score += 1;
+          }
+        }
+      }
+
+      return { memory, score };
+    });
+
+    // Sort by score descending, then by recency
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return b.memory.updatedAt - a.memory.updatedAt;
+    });
+
+    const limit = Math.min(options.limit || 10, 50);
+    return scored.filter(s => s.score > 0).slice(0, limit).map(s => s.memory);
+  }
+
+  /** Get memory statistics */
+  async getStats(): Promise<{ total: number; byType: Record<MemoryType, number>; expired: number; totalSizeBytes: number }> {
+    const all = await this.load({ includeExpired: true });
+    const now = Date.now();
+
+    const byType: Record<string, number> = {};
+    let expired = 0;
+    let totalSizeBytes = 0;
+
+    for (const memory of all) {
+      byType[memory.type] = (byType[memory.type] || 0) + 1;
+      if (memory.expiresAt && memory.expiresAt < now) {
+        expired++;
+      }
+      totalSizeBytes += JSON.stringify(memory).length * 2; // Approximate UTF-16 size
+    }
+
+    return {
+      total: all.length,
+      byType: byType as Record<MemoryType, number>,
+      expired,
+      totalSizeBytes,
+    };
+  }
+
+  /** Export memories to JSON */
+  async export(): Promise<string> {
+    const all = await this.load({ includeExpired: true });
+    return JSON.stringify({ exportedAt: Date.now(), memories: all }, null, 2);
+  }
+
+  /** Import memories from JSON */
+  async import(data: string): Promise<{ imported: number; duplicates: number }> {
+    try {
+      const parsed = JSON.parse(data);
+      if (!parsed.memories || !Array.isArray(parsed.memories)) {
+        throw new Error('Invalid import format');
+      }
+
+      let imported = 0;
+      let duplicates = 0;
+
+      for (const memory of parsed.memories) {
+        if (memory.content) {
+          const existing = await this.findDuplicate(memory.contentHash || this.hashContent(memory.content), memory.type);
+          if (existing) {
+            duplicates++;
+          } else {
+            await this.save({
+              type: memory.type,
+              content: memory.content,
+              priority: memory.priority,
+              tags: memory.tags || [],
+              ttlDays: memory.expiresAt ? Math.ceil((memory.expiresAt - Date.now()) / (24 * 60 * 60 * 1000)) : undefined,
+            });
+            imported++;
+          }
+        }
+      }
+
+      return { imported, duplicates };
+    } catch (err) {
+      Logger.error(`Memory import failed: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
   }
 
   async loadAll(): Promise<Memory[]> {

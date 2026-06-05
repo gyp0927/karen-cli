@@ -110,7 +110,7 @@ export function createTaskTool(taskManager: TaskManager): Tool {
             return { success: false, output: '', error: `Unknown action: ${action}` };
         }
       } catch (err) {
-        return { success: false, output: '', error: (err as Error).message };
+        return { success: false, output: '', error: err instanceof Error ? err.message : String(err) };
       }
     },
   };

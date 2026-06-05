@@ -1,8 +1,10 @@
 import { ToolCall } from './types.js';
 
 export interface RepeatGuardConfig {
-  /** Max identical calls before forcing exit. */
+  /** Max identical calls before warning. */
   maxRepeats: number;
+  /** Max identical calls before forcing exit (should be > maxRepeats). */
+  forceExitThreshold: number;
   /** Window size for looking back. */
   windowSize: number;
 }
@@ -22,7 +24,7 @@ export class RepeatGuard {
   private config: RepeatGuardConfig;
   private history: { fingerprint: string; timestamp: number }[] = [];
 
-  constructor(config: RepeatGuardConfig = { maxRepeats: 2, windowSize: 10 }) {
+  constructor(config: RepeatGuardConfig = { maxRepeats: 2, forceExitThreshold: 4, windowSize: 10 }) {
     this.config = config;
   }
 
@@ -48,12 +50,21 @@ export class RepeatGuard {
       this.history.push({ fingerprint: fp, timestamp: now });
     }
 
+    if (maxRepeat >= this.config.forceExitThreshold) {
+      return {
+        isRepeat: true,
+        repeatCount: maxRepeat,
+        warning: `[repeat-loop guard] You have already called this tool ${maxRepeat} time(s). Continuing to repeat the same call will not help. Synthesize what you know and give the user a final answer, or ask for clarification.`,
+        forceExit: true,
+      };
+    }
+
     if (maxRepeat >= this.config.maxRepeats) {
       return {
         isRepeat: true,
         repeatCount: maxRepeat,
         warning: `[repeat-loop guard] You have already called this tool ${maxRepeat} time(s). Continuing to repeat the same call will not help. Synthesize what you know and give the user a final answer, or ask for clarification.`,
-        forceExit: maxRepeat >= this.config.maxRepeats + 1,
+        forceExit: false,
       };
     }
 

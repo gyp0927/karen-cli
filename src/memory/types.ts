@@ -17,6 +17,8 @@ export interface Memory {
   merged?: boolean;
   /** IDs of memories that were merged into this one. */
   mergedIds?: string[];
+  /** Priority level: high priority items are always loaded into context. */
+  priority?: 'high' | 'medium' | 'low';
 }
 
 export interface MemoryInput {
@@ -27,6 +29,8 @@ export interface MemoryInput {
   ttlDays?: number;
   /** If true, skip deduplication check. */
   force?: boolean;
+  /** Priority level. High priority memories are always loaded into context. */
+  priority?: 'high' | 'medium' | 'low';
 }
 
 export interface MemoryQuery {
@@ -35,6 +39,8 @@ export interface MemoryQuery {
   keywords?: string[];
   /** If true, include expired memories (normally filtered out). */
   includeExpired?: boolean;
+  /** Filter by priority level. */
+  priority?: 'high' | 'medium' | 'low';
 }
 
 /** Default TTL per memory type in days. 0 or negative means permanent (never expires). */

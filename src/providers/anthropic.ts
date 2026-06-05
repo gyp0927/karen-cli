@@ -4,26 +4,57 @@ import Anthropic from '@anthropic-ai/sdk';
 
 export class AnthropicProvider extends BaseProvider {
   name = 'anthropic';
-  readonly model = 'claude-sonnet-4-6';
+  model: string;
   private client: Anthropic;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, model?: string) {
     super();
+    this.model = model || 'claude-sonnet-4-6';
     this.client = new Anthropic({ apiKey });
   }
 
   formatMessages(messages: Message[]): Anthropic.MessageParam[] {
-    return messages.map(m => ({
-      role: m.role === 'user' ? 'user' : 'assistant',
-      content: m.content,
-    }));
+    return messages.map(m => {
+      if (m.role === 'tool') {
+        return {
+          role: 'user',
+          content: [{
+            type: 'tool_result' as const,
+            tool_use_id: m.tool_call_id || '',
+            content: m.content,
+          }],
+        };
+      }
+      return {
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.content,
+      };
+    });
+  }
+
+  private extractSystem(messages: Message[]): { system?: string; rest: Message[] } {
+    const systemParts: string[] = [];
+    const rest: Message[] = [];
+    for (const m of messages) {
+      if (m.role === 'system') {
+        systemParts.push(m.content);
+      } else {
+        rest.push(m);
+      }
+    }
+    return {
+      system: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
+      rest,
+    };
   }
 
   async chat(messages: Message[], tools?: ToolDefinition[]): Promise<ProviderResponse> {
+    const { system, rest } = this.extractSystem(messages);
     const response = await this.client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: this.model,
       max_tokens: 4096,
-      messages: this.formatMessages(messages),
+      system,
+      messages: this.formatMessages(rest),
       tools: tools?.map(t => ({
         name: t.name,
         description: t.description,
@@ -56,10 +87,12 @@ export class AnthropicProvider extends BaseProvider {
   }
 
   async *streamChat(messages: Message[], tools?: ToolDefinition[]): AsyncGenerator<StreamChunk, void, unknown> {
+    const { system, rest } = this.extractSystem(messages);
     const stream = await this.client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: this.model,
       max_tokens: 4096,
-      messages: this.formatMessages(messages),
+      system,
+      messages: this.formatMessages(rest),
       tools: tools?.map(t => ({
         name: t.name,
         description: t.description,
@@ -87,17 +120,22 @@ export class AnthropicProvider extends BaseProvider {
             name: event.content_block.name,
             args: JSON.stringify(event.content_block.input || {}),
           });
+        } else if (event.content_block.type === 'text') {
+          // Anthropic can emit text blocks before/alongside tool calls
+          yield { type: 'text', content: event.content_block.text };
         }
       }
     }
 
     if (toolCallBuffers.size > 0) {
-      const calls = Array.from(toolCallBuffers.values()).map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        arguments: JSON.parse(tc.args || '{}'),
-      }));
-      yield { type: 'tool_calls', tool_calls: calls };
+      const calls = Array.from(toolCallBuffers.values()).map(tc => {
+        let args: Record<string, unknown> = {};
+        try { args = JSON.parse(tc.args || '{}'); } catch { /* malformed */ }
+        return { id: tc.id, name: tc.name, arguments: args };
+      }).filter(tc => tc.id && tc.name);
+      if (calls.length > 0) {
+        yield { type: 'tool_calls', tool_calls: calls };
+      }
     }
   }
 }

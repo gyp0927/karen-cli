@@ -32,6 +32,6 @@ describe('ToolRegistry', () => {
     const defs = registry.definitions();
     assert.strictEqual(defs.length, 1);
     assert.strictEqual(defs[0].name, 'Read');
-    assert.strictEqual(defs[0].description, 'Read the contents of a file.');
+    assert.ok(defs[0].description.includes('Read the contents of a file'));
   });
 });

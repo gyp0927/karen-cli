@@ -6,7 +6,19 @@ function parseValue(value: string): unknown {
   if (value.startsWith('[') && value.endsWith(']')) {
     try {
       return JSON.parse(value);
-    } catch { /* fall through */ }
+    } catch {
+      // Non-JSON array notation like [debug, fix test] — split manually
+      const inner = value.slice(1, -1).trim();
+      if (inner.length === 0) return [];
+      return inner.split(',').map(s => {
+        const t = s.trim();
+        // Strip surrounding quotes if present
+        if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+          return t.slice(1, -1);
+        }
+        return t;
+      });
+    }
   }
   if (value === 'true') return true;
   if (value === 'false') return false;
@@ -144,6 +156,7 @@ export class SkillLoader {
           name: parsed.name,
           description: parsed.description,
           trigger: parsed.trigger,
+          _lowerTriggers: parsed.trigger.map((t: string) => t.toLowerCase()),
           prompt: parsed.prompt,
           ...(typeof parsed.version === 'string' ? { version: parsed.version } : {}),
           ...(typeof parsed.author === 'string' ? { author: parsed.author } : {}),
@@ -178,6 +191,7 @@ export class SkillLoader {
       name,
       description,
       trigger,
+      _lowerTriggers: trigger.map(t => t.toLowerCase()),
       prompt,
       ...(typeof frontmatter.version === 'string' ? { version: frontmatter.version } : {}),
       ...(typeof frontmatter.author === 'string' ? { author: frontmatter.author } : {}),
@@ -194,9 +208,10 @@ export class SkillLoader {
 
   findByTrigger(input: string): Skill[] {
     const lowerInput = input.toLowerCase();
-    return this.getAll().filter(skill =>
-      skill.trigger.some(t => lowerInput.includes(t.toLowerCase()))
-    );
+    return this.getAll().filter(skill => {
+      const triggers = skill._lowerTriggers || skill.trigger.map(t => t.toLowerCase());
+      return triggers.some(t => lowerInput.includes(t));
+    });
   }
 
   getByName(name: string): Skill | null {

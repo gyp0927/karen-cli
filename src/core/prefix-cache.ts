@@ -19,9 +19,6 @@ export interface CachedPrefix {
  */
 export class PrefixCache {
   private lastPrefixHash?: string;
-  private lastToolsHash?: string;
-  private lastSkillsHash?: string;
-  private lastMemoryHash?: string;
 
   /**
    * Build a cached split from full message list.
@@ -61,7 +58,6 @@ export class PrefixCache {
     const prefixHash = this.hash(systemPrompt + toolsHash);
 
     this.lastPrefixHash = prefixHash;
-    this.lastToolsHash = toolsHash;
 
     return { prefix, dynamic, hash: prefixHash };
   }

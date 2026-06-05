@@ -3,11 +3,12 @@ import assert from 'node:assert';
 import { createGrepTool } from '../../../src/tools/grep.js';
 import { writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+
+const TEST_TEMP = join(process.cwd(), 'tests', 'temp');
 
 describe('Grep tool', () => {
   it('should find matching lines', async () => {
-    const testDir = join(tmpdir(), 'karen-test-grep');
+    const testDir = join(TEST_TEMP, 'karen-test-grep');
     rmSync(testDir, { recursive: true, force: true });
     mkdirSync(testDir, { recursive: true });
     writeFileSync(join(testDir, 'test.txt'), 'hello world\nfoo bar\nhello again', 'utf8');
@@ -24,7 +25,7 @@ describe('Grep tool', () => {
   });
 
   it('should return empty for no matches', async () => {
-    const testDir = join(tmpdir(), 'karen-test-grep-empty');
+    const testDir = join(TEST_TEMP, 'karen-test-grep-empty');
     rmSync(testDir, { recursive: true, force: true });
     mkdirSync(testDir, { recursive: true });
     writeFileSync(join(testDir, 'a.txt'), 'foo', 'utf8');

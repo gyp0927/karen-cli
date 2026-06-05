@@ -14,9 +14,24 @@ const SAFE_COMPOUND_FIRST_PARTS = ['cd ', 'dir', 'echo '];
 
 // Bash commands or operators that are considered dangerous and MUST be confirmed.
 const DANGEROUS_BASH_PATTERNS = [
+  // Destructive commands
   /\brm\b/, /\bdd\b/, /\bchmod\b/, /\bchown\b/, /\bsudo\b/, /\bsu\b/,
+  // Redirection and pipe to shell
   />/, /\|\s*rm\b/, /\|\s*sh\b/, /\|\s*bash\b/, /eval\s/, /source\s/,
-  /curl.+\|\s*sh/, /wget.+\|\s*sh/, /\`.*rm/, /\$\(.*rm/,
+  // Piped curl/wget to shell
+  /curl.+\|\s*sh/, /wget.+\|\s*sh/,
+  // Command substitution with destructive commands
+  /\`.*rm/, /\$\(.*rm/,
+  // Reverse shells and network exploits
+  /\/dev\/tcp/, /\/dev\/udp/, /\bnc\s+-[el]/, /\bncat\s+-[el]/,
+  // Encoded payloads
+  /\bbase64\s+-d.*\|.*sh/, /\bxxd\s+-r.*\|.*sh/,
+  // Fork bombs and resource exhaustion
+  /:\s*\(\)\s*{/, /\/dev\/zero.*>/, /yes\s+>/, /while\s*:\s*;.*do/,
+  // Suspicious process manipulation
+  /\bkill\b/, /\bkillall\b/, /\bpkill\b/,
+  // File system manipulation
+  /\bmkfs\b/, /\bmount\b/, /\bfdisk\b/,
 ];
 
 /**
@@ -28,9 +43,16 @@ const DANGEROUS_BASH_PATTERNS = [
 export function isBashDangerous(command: string): boolean {
   const trimmed = command.trim();
 
+  // Dangerous patterns ALWAYS take priority — check these first
+  for (const pattern of DANGEROUS_BASH_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      return true;
+    }
+  }
+
   // Explicitly safe prefixes → no confirmation
   for (const prefix of SAFE_BASH_PREFIXES) {
-    if (trimmed.startsWith(prefix)) {
+    if (trimmed.startsWith(prefix) || trimmed === prefix.trim()) {
       return false;
     }
   }
@@ -44,13 +66,6 @@ export function isBashDangerous(command: string): boolean {
     const firstIsSafe = SAFE_COMPOUND_FIRST_PARTS.some(p => first.startsWith(p));
     if (firstIsSafe && !isBashDangerous(rest)) {
       return false;
-    }
-  }
-
-  // Dangerous patterns → require confirmation
-  for (const pattern of DANGEROUS_BASH_PATTERNS) {
-    if (pattern.test(trimmed)) {
-      return true;
     }
   }
 

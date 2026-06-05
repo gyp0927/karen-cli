@@ -1,6 +1,7 @@
 import { TokenUsage } from './types.js';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { mkdir, writeFile } from 'fs/promises';
+import { dirname } from 'path';
 
 // Pricing per 1M tokens (USD). Update as providers change prices.
 const PRICING: Record<string, { prompt: number; completion: number }> = {
@@ -35,14 +36,21 @@ export class CostTracker {
   private budget: BudgetConfig;
   private startTime: number;
   private statePath?: string;
+  private stateLoaded = false;
 
   constructor(budget: BudgetConfig = {}, statePath?: string) {
     this.budget = budget;
     this.startTime = Date.now();
     this.statePath = statePath;
-    if (statePath && existsSync(statePath)) {
+  }
+
+  /** Lazy-load persisted state to avoid sync I/O in constructor. */
+  private loadState(): void {
+    if (this.stateLoaded || !this.statePath) return;
+    this.stateLoaded = true;
+    if (existsSync(this.statePath)) {
       try {
-        const data = JSON.parse(readFileSync(statePath, 'utf8'));
+        const data = JSON.parse(readFileSync(this.statePath, 'utf8'));
         this.records = data.records || [];
       } catch { /* ignore */ }
     }
@@ -50,14 +58,16 @@ export class CostTracker {
 
   /** Record a request's token usage and cost. */
   record(provider: string, model: string, usage: TokenUsage): void {
+    this.loadState();
     const price = getPricePer1M(model);
     const costUsd = (usage.prompt * price.prompt + usage.completion * price.completion) / 1_000_000;
     this.records.push({ timestamp: Date.now(), provider, model, usage, costUsd });
-    this.persist();
+    this.persistAsync();
   }
 
   /** Check if adding this request would exceed budget. Returns true if allowed. */
   checkBudget(provider: string, model: string, estimatedUsage: TokenUsage): { allowed: boolean; reason?: string } {
+    this.loadState();
     const price = getPricePer1M(model);
     const estimatedCost = (estimatedUsage.prompt * price.prompt + estimatedUsage.completion * price.completion) / 1_000_000;
 
@@ -134,12 +144,19 @@ export class CostTracker {
     return lines.join('\n');
   }
 
-  private persist(): void {
+  private writePromise: Promise<void> = Promise.resolve();
+
+  private persistAsync(): void {
     if (!this.statePath) return;
-    try {
-      const dir = this.statePath.substring(0, this.statePath.lastIndexOf('/')) || this.statePath.substring(0, this.statePath.lastIndexOf('\\'));
-      if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
-      writeFileSync(this.statePath, JSON.stringify({ records: this.records.slice(-500) }, null, 2), 'utf8');
-    } catch { /* ignore */ }
+    const path = this.statePath;
+    const data = JSON.stringify({ records: this.records.slice(-500) }, null, 2);
+    // Chain writes to prevent race conditions on rapid calls
+    this.writePromise = this.writePromise.then(async () => {
+      try {
+        const dir = dirname(path);
+        await mkdir(dir, { recursive: true });
+        await writeFile(path, data, 'utf8');
+      } catch { /* ignore */ }
+    }).catch(() => { /* ignore */ });
   }
 }

@@ -11,8 +11,13 @@ export class LocalTokenizer {
   /** Estimate tokens for a piece of text. */
   estimate(text: string): TokenCount {
     const chars = text.length;
+    // Fast path for ASCII-only text (most common for code): ~4 chars per token
+    if (/^[\x00-\x7F]*$/.test(text)) {
+      return { tokens: Math.ceil(chars / 4), chars };
+    }
+
     let tokens = 0;
-    // Simple heuristic: CJK characters cost more tokens
+    // Character-by-character heuristic for CJK/non-ASCII text
     for (const ch of text) {
       const cp = ch.codePointAt(0) || 0;
       if ((cp >= 0x4E00 && cp <= 0x9FFF) ||
@@ -25,7 +30,6 @@ export class LocalTokenizer {
           (cp >= 0xF900 && cp <= 0xFAFF)) {
         tokens += 1.5;
       } else if (cp > 127) {
-        // Other non-ASCII (emoji, symbols, etc.)
         tokens += 2;
       } else if (/\s/.test(ch)) {
         tokens += 0.25;

@@ -1,4 +1,5 @@
 import { Tool, ToolResult } from '../core/types.js';
+import { resilientFetch } from '../utils/http.js';
 
 function htmlToText(html: string): string {
   return html
@@ -45,34 +46,93 @@ export function createWebFetchTool(): Tool {
         };
       }
 
-      try {
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          },
-        });
+/** Normalize hostname: decode punycode, strip zone indices, etc. */
+function normalizeHost(hostname: string): string {
+  try {
+    // Decode punycode (IDN)
+    const decoded = new URL(`http://${hostname}`).hostname;
+    return decoded.toLowerCase();
+  } catch {
+    return hostname.toLowerCase();
+  }
+}
 
-        if (!response.ok) {
-          return {
-            success: false,
-            output: '',
-            error: `HTTP ${response.status}: ${response.statusText}`,
-          };
+/** Check if a hostname resolves to a private/internal IP range. */
+function isPrivateHost(hostname: string): boolean {
+  const h = normalizeHost(hostname);
+  if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '[::1]' || h === '::1') return true;
+  if (h.startsWith('10.')) return true;
+  if (h.startsWith('192.168.')) return true;
+  if (h.startsWith('169.254.')) return true;
+  if (h.endsWith('.local')) return true;
+
+  // 172.16.0.0/12
+  const match172 = h.match(/^172\.(\d+)\./);
+  if (match172) {
+    const second = parseInt(match172[1], 10);
+    if (second >= 16 && second <= 31) return true;
+  }
+
+  // 100.64.0.0/10 (CGNAT)
+  const match100 = h.match(/^100\.(\d+)\./);
+  if (match100) {
+    const second = parseInt(match100[1], 10);
+    if (second >= 64 && second <= 127) return true;
+  }
+
+  // IPv6 link-local and ULA
+  if (h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
+
+  // Block full IPv6 loopback forms
+  if (/^\[:?[0:]+1\]$/.test(hostname)) return true;
+
+  // Block octal/hex-encoded IPv4 (e.g., 0177.0.0.1, 0x7f000001)
+  try {
+    // Check for hex IP
+    if (/^0x[0-9a-f]{8}$/i.test(h.replace(/\./g, ''))) return true;
+    // Check for octal IP (leading zero in any octet)
+    const octets = h.split('.');
+    if (octets.length === 4 && octets.some(o => o.startsWith('0') && o.length > 1)) return true;
+  } catch { /* ignore */ }
+
+  return false;
+}
+
+      try {
+        // SSRF protection: block private/internal IP ranges
+        const parsedUrl = new URL(url);
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+          return { success: false, output: '', error: 'Only HTTP and HTTPS URLs are allowed.' };
+        }
+        if (isPrivateHost(parsedUrl.hostname)) {
+          return { success: false, output: '', error: 'Access to internal/private networks is blocked.' };
         }
 
-        const contentType = response.headers.get('content-type') || '';
-        const raw = await response.text();
+        const result = await resilientFetch({
+          url,
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          timeoutMs: 30_000,
+          maxRetries: 2,
+          // SSRF protection: block redirects (maxRedirects defaults to 0)
+        });
 
+        if (!result.ok) {
+          const code = result.status === 429 ? 'RATE_LIMITED' : result.error?.includes('timed out') ? 'TIMEOUT' : 'NETWORK_ERROR';
+          return { success: false, output: '', error: result.error || `HTTP ${result.status}`, errorCode: code };
+        }
+
+        const MAX_BODY_BYTES = 5 * 1024 * 1024;
+        if (result.text.length > MAX_BODY_BYTES) {
+          return { success: false, output: '', error: `Response too large. Use a more specific URL.` };
+        }
+
+        const raw = result.text;
+
+        // Auto-detect content type from response body
         let output: string;
-        if (contentType.includes('application/json')) {
-          // Pretty-print JSON
-          try {
-            const parsed = JSON.parse(raw);
-            output = JSON.stringify(parsed, null, 2);
-          } catch {
-            output = raw;
-          }
-        } else if (contentType.includes('text/html') || raw.trim().startsWith('<')) {
+        if (raw.trim().startsWith('{') || raw.trim().startsWith('[')) {
+          try { output = JSON.stringify(JSON.parse(raw), null, 2); } catch { output = raw; }
+        } else if (raw.trim().startsWith('<')) {
           output = htmlToText(raw);
         } else {
           output = raw;

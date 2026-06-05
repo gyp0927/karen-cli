@@ -96,7 +96,8 @@ async function promptSelect(
     const onKeypress = (_str: string, key: { name?: string; ctrl?: boolean }) => {
       if (key.ctrl && key.name === 'c') {
         cleanup();
-        process.exit(0);
+        resolve(false);
+        return;
       }
 
       if (key.name === 'up') {
@@ -130,7 +131,7 @@ async function promptSelect(
     };
 
     function cleanup() {
-      stdin.setRawMode(false);
+      try { stdin.setRawMode(false); } catch { /* already cleaned up */ }
       stdin.removeListener('keypress', onKeypress);
     }
 

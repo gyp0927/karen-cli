@@ -1,5 +1,35 @@
 import { spawn, ChildProcess } from 'child_process';
-import { Logger } from '../utils/logger.js';
+
+/** Maximum command length to prevent DoS via extremely long commands. */
+const MAX_COMMAND_LENGTH = 10000;
+
+/** Dangerous command patterns to block. */
+const DANGEROUS_PATTERNS: RegExp[] = [
+  // File-system destruction targeting system directories
+  /rm\s+(?:-[a-zA-Z]*\s+)*\/(?:\s|$|;|&&|\|\|)/i,
+  /rm\s+(?:-[a-zA-Z]*\s+)*\/\*(?:\s|$|;|&&|\|\|)/i,
+  /rm\s+(?:-[a-zA-Z]*\s+)*~(?:\s|$|;|&&|\|\|)/i,
+  // Disk formatting
+  /mkfs\.(?:ext|xfs|btrfs|vfat|ntfs)/i,
+  // Raw disk writes
+  /dd\s+.*if=\/dev\/(?:zero|null|random|urandom)/i,
+  // Fork bomb
+  /:\(\)\s*\{\s*:\|:\s*&\s*\}\s*;\s*:/,
+  // Direct block device writes
+  />\s*\/dev\/(?:sda\d*|sdb\d*|hd[a-z]\d*)/i,
+  // Moving root to /dev/null
+  /mv\s+.*\/\s+\/dev\/null/i,
+  // Recursive chmod on root
+  /chmod\s+(?:-[a-zA-Z]*\s+)*.*\s+\/(?:\s|$|;|&&|\|\|)/i,
+  // Chown root recursively
+  /chown\s+(?:-[a-zA-Z]*\s+)*.*\s+\/(?:\s|$|;|&&|\|\|)/i,
+];
+
+/** Check if a command contains dangerous patterns. */
+function isDangerousCommand(command: string): boolean {
+  if (command.includes('\0')) return true;
+  return DANGEROUS_PATTERNS.some(p => p.test(command));
+}
 
 export interface Job {
   id: string;
@@ -28,6 +58,13 @@ export class JobManager {
   private nextId = 1;
 
   spawn(command: string, cwd: string, options: JobOptions = {}): Promise<Job> {
+    if (command.length > MAX_COMMAND_LENGTH) {
+      return Promise.reject(new Error(`Command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters.`));
+    }
+    if (isDangerousCommand(command)) {
+      return Promise.reject(new Error('Command blocked: potentially dangerous operation detected.'));
+    }
+
     const id = `job-${this.nextId++}`;
     const maxLines = options.maxOutputLines ?? 500;
     const readyTimeout = options.readyTimeoutMs ?? 30_000;
@@ -36,11 +73,19 @@ export class JobManager {
       const isWindows = process.platform === 'win32';
       // Use shell: true so paths with spaces and shell operators work correctly.
       // On POSIX we still detach the process so we can kill the whole group.
+      // Only pass safe env vars to child processes
+      const safeKeys = ['PATH', 'HOME', 'USER', 'TMP', 'TEMP', 'TMPDIR', 'SHELL', 'LANG', 'LC_ALL', 'NODE_PATH', 'PYTHONPATH', 'SystemRoot', 'SYSTEMROOT', 'COMSPEC', 'PATHEXT'];
+      const safeEnv: Record<string, string> = {};
+      for (const k of safeKeys) {
+        if (k in process.env) safeEnv[k] = process.env[k]!;
+      }
+      if (options.env) Object.assign(safeEnv, options.env);
+
       const child = spawn(command, [], {
         cwd,
         shell: true,
         detached: !isWindows, // POSIX detached for process group kill
-        env: { ...process.env, ...(options.env || {}) },
+        env: safeEnv,
         windowsHide: true,
       });
 
@@ -97,6 +142,8 @@ export class JobManager {
         job.exitCode = -1;
         job.exitedAt = Date.now();
         pushOutput(`[error] ${err.message}`);
+        this.jobs.delete(id);
+        this.processes.delete(id);
         if (!job.ready) {
           reject(err);
         }
@@ -169,20 +216,23 @@ export class JobManager {
 
     const isWindows = process.platform === 'win32';
 
+    const pid = child.pid;
+    if (!pid) return false;
+
     if (isWindows) {
       // Windows: taskkill /T to kill tree
       try {
-        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']);
+        spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
       } catch { /* ignore */ }
     } else {
       // POSIX: try graceful SIGTERM, then SIGKILL
       try {
-        process.kill(-child.pid!, 'SIGTERM');
+        process.kill(-pid, 'SIGTERM');
       } catch { /* ignore */ }
       setTimeout(() => {
         if (!job.exited) {
           try {
-            process.kill(-child.pid!, 'SIGKILL');
+            process.kill(-pid, 'SIGKILL');
           } catch { /* ignore */ }
         }
       }, graceMs);

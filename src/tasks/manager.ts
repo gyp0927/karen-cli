@@ -1,8 +1,23 @@
 import { Task, TaskInput, TaskStatus, TaskSummary } from './types.js';
 import { randomUUID } from 'crypto';
 
+interface QueuedTask {
+  task: Task;
+  execute: () => Promise<void>;
+  priority: number;
+}
+
 export class TaskManager {
   private tasks: Map<string, Task> = new Map();
+  private queue: QueuedTask[] = [];
+  private running = 0;
+  private maxConcurrency = 3;
+
+  constructor(maxConcurrency?: number) {
+    if (maxConcurrency && maxConcurrency > 0) {
+      this.maxConcurrency = maxConcurrency;
+    }
+  }
 
   create(input: TaskInput): Task {
     const now = Date.now();
@@ -104,5 +119,58 @@ export class TaskManager {
       completed: tasks.filter(t => t.status === 'completed').length,
       failed: tasks.filter(t => t.status === 'failed').length,
     };
+  }
+
+  /** Queue a task for execution with concurrency control */
+  async enqueue(taskId: string, execute: () => Promise<void>, priority = 0): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (!task) throw new Error(`Task ${taskId} not found`);
+
+    this.queue.push({ task, execute, priority });
+    this.queue.sort((a, b) => b.priority - a.priority);
+
+    await this.processQueue();
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.running >= this.maxConcurrency) return;
+    if (this.queue.length === 0) return;
+
+    const next = this.queue.shift();
+    if (!next) return;
+
+    this.running++;
+    const task = this.start(next.task.id);
+    if (!task) {
+      this.running--;
+      return;
+    }
+
+    try {
+      await next.execute();
+      this.complete(next.task.id);
+    } catch (err) {
+      this.fail(next.task.id, err instanceof Error ? err.message : String(err));
+    } finally {
+      this.running--;
+      // Process next items in queue
+      this.processQueue();
+    }
+  }
+
+  /** Get current queue status */
+  getQueueStatus(): { queued: number; running: number; maxConcurrency: number } {
+    return {
+      queued: this.queue.length,
+      running: this.running,
+      maxConcurrency: this.maxConcurrency,
+    };
+  }
+
+  /** Set max concurrency */
+  setMaxConcurrency(max: number): void {
+    this.maxConcurrency = Math.max(1, max);
+    // Trigger processing in case we can now run more
+    this.processQueue();
   }
 }

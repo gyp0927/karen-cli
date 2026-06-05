@@ -18,15 +18,15 @@ export class HookManager {
     }
   }
 
-  async trigger(name: HookName, context: Record<string, unknown> = {}): Promise<Error[]> {
+  async trigger(name: HookName, context: Record<string, unknown> = {}): Promise<unknown[]> {
     const callbacks = this.hooks.get(name) || [];
-    const errors: Error[] = [];
+    const errors: unknown[] = [];
 
     for (const callback of callbacks) {
       try {
         await callback(context);
       } catch (err) {
-        errors.push(err as Error);
+        errors.push(err);
       }
     }
 

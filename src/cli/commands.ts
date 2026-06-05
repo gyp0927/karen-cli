@@ -1,10 +1,12 @@
 export interface ParsedCommand {
-  type: 'exit' | 'model' | 'cost' | 'tools' | 'skills' | 'skill_install' | 'skill_remove' | 'tasks' | 'remember' | 'forget' | 'memory' | 'plan' | 'help';
+  type: 'exit' | 'model' | 'cost' | 'tools' | 'skills' | 'skill_install' | 'skill_remove' | 'tasks' | 'remember' | 'forget' | 'memory' | 'plan' | 'help' | 'diff' | 'resume' | 'rollback';
   args?: string;
 }
 
 export function parseCommand(input: string): ParsedCommand | null {
   if (!input.startsWith('/')) return null;
+  // Bare "/" with no command — treat as help request
+  if (input === '/') return { type: 'help' };
 
   const parts = input.slice(1).split(' ');
   const cmd = parts[0];
@@ -46,6 +48,12 @@ export function parseCommand(input: string): ParsedCommand | null {
       return { type: 'plan', args };
     case 'help':
       return { type: 'help' };
+    case 'diff':
+      return { type: 'diff' };
+    case 'resume':
+      return { type: 'resume', args };
+    case 'rollback':
+      return { type: 'rollback', args };
     default:
       return null;
   }

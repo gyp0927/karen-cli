@@ -2,6 +2,7 @@ import { Tool, ToolResult } from '../core/types.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ListToolsResult } from '@modelcontextprotocol/sdk/types.js';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -21,13 +22,34 @@ interface McpConfig {
 
 const MCP_CONFIG_PATH = join(homedir(), '.karen', 'mcp.json');
 
+/** Type guard to validate parsed MCP config shape at runtime. */
+function isMcpConfig(value: unknown): value is McpConfig {
+  if (!value || typeof value !== 'object') return false;
+  const obj = value as Record<string, unknown>;
+  if (!Array.isArray(obj.servers)) return false;
+  for (const s of obj.servers) {
+    if (!s || typeof s !== 'object') return false;
+    const server = s as Record<string, unknown>;
+    if (typeof server.name !== 'string') return false;
+    if (server.command !== undefined && typeof server.command !== 'string') return false;
+    if (server.args !== undefined && !Array.isArray(server.args)) return false;
+    if (server.env !== undefined && typeof server.env !== 'object') return false;
+    if (server.url !== undefined && typeof server.url !== 'string') return false;
+  }
+  return true;
+}
+
 function loadMcpConfig(): McpConfig {
   if (!existsSync(MCP_CONFIG_PATH)) {
     return { servers: [] };
   }
   try {
     const content = readFileSync(MCP_CONFIG_PATH, 'utf8');
-    return JSON.parse(content) as McpConfig;
+    const parsed = JSON.parse(content);
+    if (isMcpConfig(parsed)) {
+      return parsed;
+    }
+    return { servers: [] };
   } catch {
     return { servers: [] };
   }
@@ -45,20 +67,40 @@ class McpClientManager {
   async connect(server: McpServerConfig): Promise<string> {
     const client = new Client({ name: 'karen-cli', version: '0.1.0' });
 
+    const connectTimeoutMs = 30_000;
     if (server.url) {
-      const transport = new SSEClientTransport(new URL(server.url));
-      await client.connect(transport);
+      // Auto-detect transport: SSE (EventSource) vs StreamableHTTP
+      const urlStr = server.url;
+      const transport = urlStr.includes('/sse') || urlStr.endsWith('/events')
+        ? new SSEClientTransport(new URL(urlStr))
+        : new StreamableHTTPClientTransport(new URL(urlStr));
+      await Promise.race([
+        client.connect(transport),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Connect to ${server.name} timed out after ${connectTimeoutMs}ms`)), connectTimeoutMs)),
+      ]);
     } else if (server.command) {
+      // Only pass safe env vars to MCP child processes (filter out secrets)
+      const safeKeys = ['PATH', 'HOME', 'USER', 'TMP', 'TEMP', 'TMPDIR', 'SHELL', 'LANG', 'LC_ALL', 'NODE_PATH', 'PYTHONPATH'];
       const env: Record<string, string> = {};
-      for (const [k, v] of Object.entries({ ...process.env, ...(server.env || {}) })) {
-        if (v !== undefined) env[k] = v;
+      for (const k of safeKeys) {
+        const val = process.env[k];
+        if (val !== undefined) env[k] = val;
+      }
+      // Merge server-specific env overrides
+      if (server.env) {
+        for (const [k, v] of Object.entries(server.env)) {
+          if (v !== undefined) env[k] = v;
+        }
       }
       const transport = new StdioClientTransport({
         command: server.command,
         args: server.args || [],
         env,
       });
-      await client.connect(transport);
+      await Promise.race([
+        client.connect(transport),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Connect to ${server.name} timed out after ${connectTimeoutMs}ms`)), connectTimeoutMs)),
+      ]);
     } else {
       throw new Error('Server must have either "command" or "url"');
     }

@@ -1,9 +1,10 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { createEditTool, createUndoTool } from '../../../src/tools/edit.js';
+import { createEditTool, createUndoTool, resetEditHistory } from '../../../src/tools/edit.js';
 import { writeFileSync, readFileSync, rmSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+
+const TEST_TEMP = join(process.cwd(), 'tests', 'temp');
 
 describe('Undo tool', () => {
   let testDir: string;
@@ -11,8 +12,10 @@ describe('Undo tool', () => {
   let undoTool: ReturnType<typeof createUndoTool>;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `karen-undo-test-${Date.now()}`);
+    testDir = join(TEST_TEMP, `karen-undo-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
+    // Reset global edit history to isolate tests
+    resetEditHistory();
     editTool = createEditTool();
     undoTool = createUndoTool();
   });

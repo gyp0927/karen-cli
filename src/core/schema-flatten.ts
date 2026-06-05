@@ -16,7 +16,8 @@ export function flattenToolSchema(tool: ToolDefinition): ToolDefinition {
 function flattenSchema(schema: Record<string, unknown>): Record<string, unknown> {
   if (!schema || typeof schema !== 'object') return schema;
 
-  const result: Record<string, unknown> = { ...schema };
+  // Deep-clone to avoid mutating the original ToolDefinition's nested objects
+  const result: Record<string, unknown> = structuredClone(schema) as Record<string, unknown>;
 
   // Simplify anyOf/oneOf to first option + description note
   if (result.anyOf && Array.isArray(result.anyOf)) {

@@ -45,7 +45,7 @@ export class StormBreaker {
         this.onSuccess();
         return result;
       } catch (err) {
-        lastError = err as Error;
+        lastError = err instanceof Error ? err : new Error(String(err));
         const isTimeout = lastError.message.includes('timed out') || lastError.message.includes('abort');
         const isTransient = isTimeout || this.isTransientError(lastError);
 
@@ -66,18 +66,28 @@ export class StormBreaker {
 
   private async withTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
+      let settled = false;
       const timer = setTimeout(() => {
-        reject(new Error(`${label} timed out after ${this.options.requestTimeoutMs}ms`));
+        if (!settled) {
+          settled = true;
+          reject(new Error(`${label} timed out after ${this.options.requestTimeoutMs}ms`));
+        }
       }, this.options.requestTimeoutMs);
 
       promise
         .then((val) => {
-          clearTimeout(timer);
-          resolve(val);
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            resolve(val);
+          }
         })
         .catch((err) => {
-          clearTimeout(timer);
-          reject(err);
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            reject(err);
+          }
         });
     });
   }
@@ -107,9 +117,8 @@ export class StormBreaker {
   }
 
   private onSuccess(): void {
-    if (this.failures > 0) {
-      this.failures = Math.max(0, this.failures - 1);
-    }
+    this.failures = 0;
+    this.circuitOpen = false;
   }
 
   private onFailure(): void {

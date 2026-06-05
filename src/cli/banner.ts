@@ -1,4 +1,4 @@
-import { IProvider } from '../core/types.js';
+import type { IProvider } from '../core/types.js';
 
 const KAREN_ASCII = `
 ██╗  ██╗ █████╗ ██████╗ ███████╗███╗   ██╗
@@ -40,9 +40,8 @@ export function printBanner(provider: IProvider, version: string): void {
 
   console.log(boxSep);
 
-  const model = (provider as unknown as Record<string, string>)?.model || 'default';
   console.log(centerLine(`Provider: ${provider.name}`, width));
-  console.log(centerLine(`Model: ${model}`, width));
+  console.log(centerLine(`Model: ${provider.model}`, width));
   console.log(centerLine(`Working directory: ${process.cwd()}`, width));
 
   console.log(boxSep);

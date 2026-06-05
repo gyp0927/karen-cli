@@ -1,5 +1,5 @@
 import { Tool, ToolResult } from '../core/types.js';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 
@@ -20,7 +20,7 @@ function runGit(args: string[], cwd?: string): { success: boolean; output: strin
   try {
     const gitRoot = cwd ? findGitRoot(cwd) : process.cwd();
     const execCwd = gitRoot || cwd || process.cwd();
-    const output = execSync(`git ${args.join(' ')}`, {
+    const output = execFileSync('git', args, {
       cwd: execCwd,
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024,
@@ -35,13 +35,13 @@ function runGit(args: string[], cwd?: string): { success: boolean; output: strin
 export function createGitTool(): Tool {
   return {
     name: 'Git',
-    description: 'Git operations: check status, diff, log, branch, checkout, commit, add. Use this to understand repository state and make version control changes. Always run status first before making changes.',
+    description: 'Git operations: check status, diff, log, branch, checkout, commit, add, stash, merge, rebase, reset, remote, tag, blame. Use this to understand repository state and make version control changes. Always run status first before making changes.',
     parameters: {
       type: 'object',
       properties: {
         operation: {
           type: 'string',
-          enum: ['status', 'diff', 'log', 'branch', 'checkout', 'commit', 'add', 'show'],
+          enum: ['status', 'diff', 'log', 'branch', 'checkout', 'commit', 'add', 'show', 'stash', 'merge', 'rebase', 'reset', 'remote', 'tag', 'blame'],
           description: 'The git operation to perform.',
         },
         path: {
@@ -106,12 +106,61 @@ export function createGitTool(): Tool {
           if (!message) {
             return { success: false, output: '', error: 'Missing "message" for commit.' };
           }
-          const result = runGit(['commit', '-m', `"${message}"`], cwd);
+          const result = runGit(['commit', '-m', message], cwd);
           return result;
         }
         case 'show': {
           const target = String(args.target || 'HEAD');
           const result = runGit(['show', '--stat', target], cwd);
+          return result;
+        }
+        case 'stash': {
+          const subOp = String(args.target || 'list');
+          const validOps = ['list', 'push', 'pop', 'drop', 'clear'];
+          if (!validOps.includes(subOp)) {
+            return { success: false, output: '', error: `Invalid stash operation: ${subOp}. Use: list, push, pop, drop, clear` };
+          }
+          const result = runGit(['stash', subOp], cwd);
+          return result;
+        }
+        case 'merge': {
+          const target = String(args.target || '');
+          if (!target) {
+            return { success: false, output: '', error: 'Missing "target" branch for merge.' };
+          }
+          const result = runGit(['merge', target], cwd);
+          return result;
+        }
+        case 'rebase': {
+          const target = String(args.target || '');
+          if (!target) {
+            return { success: false, output: '', error: 'Missing "target" branch for rebase.' };
+          }
+          const result = runGit(['rebase', target], cwd);
+          return result;
+        }
+        case 'reset': {
+          const target = String(args.target || 'HEAD');
+          const validModes = ['--soft', '--mixed', '--hard', '--merge', '--keep'];
+          const rawMode = String(args.message || '--soft');
+          const mode = validModes.includes(rawMode) ? rawMode : '--soft';
+          const result = runGit(['reset', mode, target], cwd);
+          return result;
+        }
+        case 'remote': {
+          const result = runGit(['remote', '-v'], cwd);
+          return result;
+        }
+        case 'tag': {
+          const result = runGit(['tag', '-l'], cwd);
+          return result;
+        }
+        case 'blame': {
+          const target = String(args.target || '');
+          if (!target) {
+            return { success: false, output: '', error: 'Missing "target" file path for blame.' };
+          }
+          const result = runGit(['blame', target], cwd);
           return result;
         }
         default:

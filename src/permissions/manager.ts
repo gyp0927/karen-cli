@@ -9,8 +9,10 @@ export class PermissionManager {
 
   constructor(options: PermissionManagerOptions = {}) {
     this.confirm = options.confirm || (async () => {
-      // Default: ask via stdin in real CLI
-      return true;
+      // Default: deny operations that reach this fallback.
+      // Safe operations (non-sensitive Bash, Write, Edit) are already filtered by check().
+      // Only dangerous operations reach here; deny them by default.
+      return false;
     });
   }
 
@@ -28,10 +30,7 @@ export class PermissionManager {
       }
     }
 
-    // Write and Edit are core coding operations — auto-approve like Claude Code.
-    if (toolName === 'Write' || toolName === 'Edit') {
-      return true;
-    }
+    // Write and Edit require explicit user confirmation (removed auto-approve).
 
     return this.confirm(toolName, args);
   }

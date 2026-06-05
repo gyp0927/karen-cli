@@ -1,4 +1,5 @@
 import { Tool, ToolResult } from '../core/types.js';
+import { resilientFetch } from '../utils/http.js';
 
 export function createWeatherTool(): Tool {
   return {
@@ -37,21 +38,18 @@ export function createWeatherTool(): Tool {
 
         const url = `https://wttr.in/${encodeURIComponent(city)}?format=${encodeURIComponent(format)}&lang=zh`;
 
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'curl/7.68.0',
-          },
+        const result = await resilientFetch({
+          url,
+          headers: { 'User-Agent': 'curl/7.68.0' },
+          timeoutMs: 15_000,
+          maxRetries: 1,
         });
 
-        if (!response.ok) {
-          return {
-            success: false,
-            output: '',
-            error: `Weather API error: HTTP ${response.status}`,
-          };
+        if (!result.ok) {
+          return { success: false, output: '', error: result.error || `Weather API error: HTTP ${result.status}` };
         }
 
-        const text = await response.text();
+        const text = result.text;
 
         if (text.includes('Unknown location') || text.trim().length === 0) {
           return {

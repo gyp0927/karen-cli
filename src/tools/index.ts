@@ -1,6 +1,7 @@
 import { Tool, ToolResult } from '../core/types.js';
-import { readdirSync, statSync, readFileSync } from 'fs';
+import { readdir, stat } from 'fs/promises';
 import { join, extname, relative } from 'path';
+import { safePath } from '../utils/paths.js';
 
 interface FileEntry {
   path: string;
@@ -23,6 +24,12 @@ let cachedIndex: ProjectIndex | null = null;
 let cacheTime = 0;
 const CACHE_TTL = 60000; // 1 minute
 
+/** Reset the module-level index cache — exposed for test isolation. */
+export function resetIndexCache(): void {
+  cachedIndex = null;
+  cacheTime = 0;
+}
+
 function classifyFile(ext: string): FileEntry['type'] {
   const codeExts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.c', '.cpp', '.h', '.php', '.rb', '.swift', '.kt'];
   const configExts = ['.json', '.yaml', '.yml', '.toml', '.ini', '.env', '.config'];
@@ -36,27 +43,27 @@ function classifyFile(ext: string): FileEntry['type'] {
   return 'other';
 }
 
-function scanDirectory(dir: string, root: string, entries: FileEntry[] = [], depth = 0): FileEntry[] {
+async function scanDirectory(dir: string, root: string, entries: FileEntry[] = [], depth = 0): Promise<FileEntry[]> {
   if (depth > 20) return entries;
 
   const skipDirs = ['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__', '.venv', 'venv'];
 
   try {
-    const items = readdirSync(dir);
+    const items = await readdir(dir);
     for (const item of items) {
       if (item.startsWith('.') && item !== '.github') continue;
       const fullPath = join(dir, item);
-      const stat = statSync(fullPath);
+      const st = await stat(fullPath);
 
-      if (stat.isDirectory()) {
+      if (st.isDirectory()) {
         if (skipDirs.includes(item)) continue;
-        scanDirectory(fullPath, root, entries, depth + 1);
-      } else if (stat.isFile()) {
+        await scanDirectory(fullPath, root, entries, depth + 1);
+      } else if (st.isFile()) {
         const ext = extname(item).toLowerCase();
         entries.push({
           path: fullPath,
           relativePath: relative(root, fullPath),
-          size: stat.size,
+          size: st.size,
           extension: ext,
           type: classifyFile(ext),
         });
@@ -67,8 +74,8 @@ function scanDirectory(dir: string, root: string, entries: FileEntry[] = [], dep
   return entries;
 }
 
-function buildIndex(root: string): ProjectIndex {
-  const files = scanDirectory(root, root);
+async function buildIndex(root: string): Promise<ProjectIndex> {
+  const files = await scanDirectory(root, root);
   const languages: Record<string, number> = {};
   let totalSize = 0;
 
@@ -123,10 +130,14 @@ export function createIndexTool(): Tool {
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       const operation = String(args.operation);
-      const root = args.path ? String(args.path) : process.cwd();
+      const rawRoot = args.path ? String(args.path) : process.cwd();
+      const root = safePath(rawRoot);
+      if (!root) {
+        return { success: false, output: '', error: 'Invalid or unsafe file path.' };
+      }
 
       if (operation === 'scan') {
-        cachedIndex = buildIndex(root);
+        cachedIndex = await buildIndex(root);
         cacheTime = Date.now();
         return {
           success: true,
@@ -136,7 +147,7 @@ export function createIndexTool(): Tool {
 
       // Use cache if fresh, otherwise build
       if (!cachedIndex || Date.now() - cacheTime > CACHE_TTL || cachedIndex.root !== root) {
-        cachedIndex = buildIndex(root);
+        cachedIndex = await buildIndex(root);
         cacheTime = Date.now();
       }
 
@@ -181,9 +192,10 @@ export function createIndexTool(): Tool {
           const maxDepth = typeof args.max_depth === 'number' ? args.max_depth : 3;
           const treeLines: string[] = [];
 
-          function buildTree(dir: string, prefix = '', depth = 0) {
+          async function buildTree(dir: string, prefix = '', depth = 0): Promise<void> {
             if (depth > maxDepth) return;
-            const items = readdirSync(dir);
+            let items: string[];
+            try { items = await readdir(dir); } catch { return; }
             const dirs: string[] = [];
             const files: string[] = [];
 
@@ -191,7 +203,7 @@ export function createIndexTool(): Tool {
               if (item.startsWith('.') && item !== '.github') continue;
               const full = join(dir, item);
               try {
-                const s = statSync(full);
+                const s = await stat(full);
                 if (s.isDirectory()) {
                   const skip = ['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__'];
                   if (!skip.includes(item)) dirs.push(item);
@@ -209,16 +221,17 @@ export function createIndexTool(): Tool {
               treeLines.push(prefix + connector + item);
               const fullPath = join(dir, item);
               try {
-                if (statSync(fullPath).isDirectory()) {
+                const s = await stat(fullPath);
+                if (s.isDirectory()) {
                   const ext = isLast ? '    ' : '│   ';
-                  buildTree(fullPath, prefix + ext, depth + 1);
+                  await buildTree(fullPath, prefix + ext, depth + 1);
                 }
               } catch { /* ignore */ }
             }
           }
 
           treeLines.push(relative(process.cwd(), root) || '.');
-          buildTree(root);
+          await buildTree(root);
           return { success: true, output: treeLines.join('\n') };
         }
         default:

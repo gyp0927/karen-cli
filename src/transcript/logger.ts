@@ -1,6 +1,6 @@
-import { writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, statSync, renameSync } from 'fs';
 import { join } from 'path';
-import { Message, ToolCall, TokenUsage } from '../core/types.js';
+import { ToolCall, TokenUsage } from '../core/types.js';
 import { Logger } from '../utils/logger.js';
 
 export interface TranscriptEvent {
@@ -17,6 +17,33 @@ export interface TranscriptEvent {
   metadata?: Record<string, unknown>;
 }
 
+/** Field names that may contain secrets — redact their values in transcripts. */
+const SENSITIVE_FIELDS = new Set([
+  'api_key', 'apikey', 'api-key', 'key', 'secret', 'token', 'password', 'passwd', 'auth',
+  'credential', 'private_key', 'privatekey', 'access_token', 'refresh_token',
+  'bearer', 'authorization',
+]);
+
+function isSensitiveKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return SENSITIVE_FIELDS.has(lower) || lower.includes('secret') || lower.includes('password') || lower.includes('token');
+}
+
+/** Deep-clone and redact sensitive fields from an object. */
+function redactSensitive(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (isSensitiveKey(key)) {
+      result[key] = typeof value === 'string' && value.length > 0 ? '***' : value;
+    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+      result[key] = redactSensitive(value as Record<string, unknown>);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 export class TranscriptLogger {
   private path: string;
   private turn = 0;
@@ -29,15 +56,44 @@ export class TranscriptLogger {
     }
     const filename = `session-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
     this.path = join(dir, filename);
+    // Ensure buffered events are flushed on normal process exit
+    process.once('beforeExit', () => this.flush());
   }
 
+  private writeQueue: TranscriptEvent[] = [];
+  private writeTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB cap
+
   private write(event: TranscriptEvent): void {
+    this.writeQueue.push(event);
+    if (!this.writeTimer) {
+      this.writeTimer = setTimeout(() => this.flush(), 500);
+    }
+  }
+
+  /** Flush pending writes — call before process exit. */
+  flush(): void {
+    this.writeTimer = null;
+    if (this.writeQueue.length === 0) return;
+
     try {
-      appendFileSync(this.path, JSON.stringify(event) + '\n', 'utf8');
+      // Check file size and rotate if needed
+      if (existsSync(this.path)) {
+        const stat = statSync(this.path);
+        if (stat.size > this.MAX_FILE_SIZE) {
+          const rotated = this.path.replace('.jsonl', `-${Date.now()}.jsonl`);
+          renameSync(this.path, rotated);
+        }
+      }
+
+      const batch = this.writeQueue.splice(0);
+      const lines = batch.map(e => JSON.stringify(e)).join('\n') + '\n';
+      appendFileSync(this.path, lines, 'utf8');
     } catch (err) {
       this.writeErrors++;
       if (this.writeErrors <= 3) {
-        Logger.warn(`Transcript write failed (${this.writeErrors}x): ${(err as Error).message}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        Logger.warn(`Transcript write failed (${this.writeErrors}x): ${msg}`);
       }
     }
   }
@@ -67,7 +123,7 @@ export class TranscriptLogger {
       type: 'tool_call',
       turn: this.turn,
       toolName: name,
-      toolArgs: args,
+      toolArgs: redactSensitive(args),
     });
   }
 
@@ -91,7 +147,7 @@ export class TranscriptLogger {
   }
 
   logCheckpoint(metadata: Record<string, unknown>): void {
-    this.write({ ts: Date.now(), type: 'checkpoint', turn: this.turn, metadata });
+    this.write({ ts: Date.now(), type: 'checkpoint', turn: this.turn, metadata: redactSensitive(metadata) });
   }
 
   getPath(): string {

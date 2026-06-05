@@ -10,7 +10,7 @@ describe('Index tool', () => {
   let tool: ReturnType<typeof createIndexTool>;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `karen-index-test-${Date.now()}`);
+    testDir = join(process.cwd(), 'tests', 'temp', `karen-index-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
     mkdirSync(join(testDir, 'src', 'components'), { recursive: true });
     writeFileSync(join(testDir, 'src', 'index.ts'), 'export {};', 'utf8');

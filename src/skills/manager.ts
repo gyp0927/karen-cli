@@ -1,8 +1,9 @@
 import { SkillLoader } from './loader.js';
 import { Skill } from './types.js';
 import { homedir } from 'os';
-import { join, basename, extname } from 'path';
+import { join, extname } from 'path';
 import { mkdirSync, existsSync, rmSync } from 'fs';
+import { resilientFetch } from '../utils/http.js';
 
 export class SkillManager {
   private loader: SkillLoader;
@@ -33,18 +34,29 @@ export class SkillManager {
 
   async installFromUrl(url: string): Promise<Skill | null> {
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      let content: string;
+      let urlPath: string;
+
+      // Handle file:// URLs locally (Node.js fetch doesn't support file://)
+      if (url.startsWith('file://')) {
+        const fs = await import('fs');
+        const filePath = url.replace(/^file:\/\/\/?/, '');
+        content = fs.readFileSync(filePath, 'utf8');
+        urlPath = filePath;
+      } else {
+        const result = await resilientFetch({ url, timeoutMs: 30_000, maxRetries: 2 });
+        if (!result.ok) {
+          throw new Error(result.error || `HTTP ${result.status}`);
+        }
+        content = result.text;
+        urlPath = new URL(url).pathname;
       }
 
-      const content = await response.text();
       if (!content.trim()) {
         throw new Error('Empty response');
       }
 
       // Determine file extension from URL or content
-      const urlPath = new URL(url).pathname;
       let ext = extname(urlPath).toLowerCase();
       if (ext !== '.md' && ext !== '.json') {
         ext = content.trim().startsWith('---') ? '.md' : '.json';

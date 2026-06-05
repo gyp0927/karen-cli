@@ -30,12 +30,13 @@ export class ToolCallRepair {
         const fixed = this.fixSingle(raw);
         if (fixed) {
           repaired.push(fixed);
-          if (JSON.stringify(fixed) !== JSON.stringify(raw)) {
+          if (!this.isValidToolCall(raw)) {
             wasRepaired = true;
           }
         }
       } catch (err) {
-        Logger.warn(`ToolCallRepair: could not repair entry: ${(err as Error).message}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        Logger.warn(`ToolCallRepair: could not repair entry: ${msg}`);
         wasRepaired = true;
       }
     }
@@ -60,7 +61,9 @@ export class ToolCallRepair {
       const obj = raw as Record<string, unknown>;
 
       const id = String(obj.id || obj.tool_call_id || this.generateId());
-      const func = obj.function as Record<string, unknown> | undefined;
+      const func = typeof obj.function === 'object' && obj.function !== null
+        ? obj.function as Record<string, unknown>
+        : undefined;
       const name = String(obj.name || func?.name || '');
       let args = obj.arguments || func?.arguments || obj.parameters || obj.input || obj.args;
 
@@ -112,30 +115,56 @@ export class ToolCallRepair {
     try {
       return JSON.parse(cleaned);
     } catch {
-      // Try common truncation repairs
-      const repairs = [
-        cleaned,
-        cleaned + '"}',
-        cleaned + '}',
-        cleaned + ']}',
-        cleaned + ']}]}',
-      ];
-
-      for (const attempt of repairs) {
-        try {
-          return JSON.parse(attempt);
-        } catch {
-          // continue
-        }
+      // Check if it's already valid JSON before trying repairs
+      if (!cleaned || (cleaned[0] !== '{' && cleaned[0] !== '[')) {
+        return null;
       }
 
-      // Try stripping trailing commas and incomplete tokens
-      const truncated = cleaned.replace(/,\s*([}\]])/g, '$1');
+      // Count brace/bracket balance, skipping braces inside string literals
+      let inString = false;
+      let stringEscape = false;
+      let openBraces = 0, closeBraces = 0;
+      let openBrackets = 0, closeBrackets = 0;
+      for (let i = 0; i < cleaned.length; i++) {
+        const ch = cleaned[i];
+        if (stringEscape) {
+          stringEscape = false;
+          continue;
+        }
+        if (ch === '\\') {
+          stringEscape = true;
+          continue;
+        }
+        if (ch === '"' && (i === 0 || cleaned[i - 1] !== '\\')) {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
+        if (ch === '{') openBraces++;
+        else if (ch === '}') closeBraces++;
+        else if (ch === '[') openBrackets++;
+        else if (ch === ']') closeBrackets++;
+      }
+      const missingBraces = Math.max(0, openBraces - closeBraces);
+      const missingBrackets = Math.max(0, openBrackets - closeBrackets);
+
+      if (missingBraces === 0 && missingBrackets === 0) {
+        // Balanced but still invalid — try stripping trailing commas
+        const truncated = cleaned.replace(/,\s*([}\]])/g, '$1');
+        try { return JSON.parse(truncated); } catch { return null; }
+      }
+
+      // Try closing braces first, then brackets
+      const closing = '}'.repeat(missingBraces) + ']'.repeat(missingBrackets);
       try {
-        return JSON.parse(truncated);
+        return JSON.parse(cleaned + closing);
       } catch {
-        // final fallback
-        return null;
+        // Try with quote closing before braces
+        try {
+          return JSON.parse(cleaned + '"' + closing);
+        } catch {
+          return null;
+        }
       }
     }
   }

@@ -11,6 +11,8 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
     "lib": ["ES2024", "DOM"]
   },
   "include": ["bin/**/*", "src/**/*", "tests/**/*"],
