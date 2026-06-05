@@ -1,5 +1,5 @@
 {
-  "name": "karen-cli",
+  "name": "@jhonzs/karen-cli",
   "version": "0.1.0",
   "description": "A general-purpose coding assistant CLI inspired by Claude Code",
   "type": "module",
@@ -27,6 +27,28 @@
     "tsx": "^4.22.3",
     "typescript": "^5.7.0"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "cli",
+    "ai",
+    "coding-assistant",
+    "chatgpt",
+    "claude",
+    "deepseek"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gyp0927/karen-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gyp0927/karen-cli/issues"
+  },
+  "homepage": "https://github.com/gyp0927/karen-cli#readme",
   "engines": {
     "node": ">=20.0.0"
   }

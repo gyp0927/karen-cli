@@ -24,9 +24,9 @@
 
 ## Features / 功能特性
 
-- **Multi-Model Support / 多模型支持**  
-  Switch between Anthropic (Claude), OpenAI (GPT-4o), and Silicon Flow (DeepSeek).  
-  支持 Anthropic (Claude)、OpenAI (GPT-4o)、Silicon Flow (DeepSeek) 三种提供商一键切换。
+- **Multi-Model Support / 多模型支持**
+  Switch between Anthropic (Claude), OpenAI (GPT-4o), DeepSeek, and Silicon Flow.
+  支持 Anthropic (Claude)、OpenAI (GPT-4o)、DeepSeek、Silicon Flow 四种提供商一键切换。
 
 - **Streaming Full-Width REPL / 流式全宽交互界面**  
   Persistent conversation with real-time streaming, box-based UI, and zero blank-line tolerance.  
@@ -100,6 +100,16 @@
 
 ## Installation / 安装
 
+### Option 1: npm install (Recommended / 推荐)
+
+```bash
+npm install -g @jhonzs/karen-cli
+```
+
+Then run `karen` anywhere. 然后可在任意位置运行 `karen`。
+
+### Option 2: Build from source / 从源码构建
+
 ```bash
 # Clone the repository / 克隆仓库
 git clone https://github.com/gyp0927/karen-cli.git
@@ -110,14 +120,16 @@ npm install
 
 # Build / 构建
 npm run build
+
+# Optional: link globally / 可选：全局链接
+npm link
 ```
 
 ---
 
 ## Configuration / 配置
 
-Set your API keys as environment variables:  
-将 API 密钥设置为环境变量：
+### Method 1: Environment Variables / 环境变量
 
 ```bash
 # For Anthropic (default) / Anthropic（默认）
@@ -126,11 +138,31 @@ export ANTHROPIC_API_KEY=sk-ant-...
 # For OpenAI / OpenAI
 export OPENAI_API_KEY=sk-...
 
+# For DeepSeek / DeepSeek
+export DEEPSEEK_API_KEY=sk-...
+
 # For Silicon Flow / Silicon Flow
 export SILICONFLOW_API_KEY=sk-...
 
 # Optional: specify preferred provider / 可选：指定默认提供商
-export KAREN_PROVIDER=anthropic  # or 'openai', 'siliconflow'
+export KAREN_PROVIDER=anthropic  # or 'openai', 'deepseek', 'siliconflow'
+```
+
+### Method 2: Config File / 配置文件
+
+Create `~/.karen/config.json`:
+
+```json
+{
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "apiKeys": {
+    "anthropic": "sk-ant-...",
+    "openai": "sk-...",
+    "deepseek": "sk-...",
+    "siliconflow": "sk-..."
+  }
+}
 ```
 
 ---
@@ -139,31 +171,20 @@ export KAREN_PROVIDER=anthropic  # or 'openai', 'siliconflow'
 
 ### Start the CLI / 启动
 
-**Option 1: Direct run / 直接运行**
 ```bash
-npm start
-# or
-node dist/bin/karen.js
+karen
 ```
 
-**Option 2: Global `karen` command / 全局命令**
+**CLI Flags / 命令行参数**
 
-**Windows (CMD):**
-```cmd
-setx PATH "%PATH%;E:\karen-cli"
-```
-Then open a new terminal and run `karen`.  
-然后打开新终端运行 `karen`。
-
-**Windows (PowerShell):**
-```powershell
-[Environment]::SetEnvironmentVariable("Path", $env:Path + ";E:\karen-cli", "User")
-```
-
-**Linux/macOS:**
-```bash
-export PATH="$PATH:/path/to/karen-cli"
-```
+| Flag / 参数 | Description / 说明 |
+|---|---|
+| `--version, -v` | Show version / 显示版本 |
+| `--help, -h` | Show help / 显示帮助 |
+| `--model <name>` | Start with specific model / 指定模型启动 |
+| `--print <message>` | Non-interactive mode / 非交互模式 |
+| `--output-format json` | JSON output (with `--print`) / JSON 输出 |
+| `--resume <id>` | Resume from session / 恢复会话 |
 
 ### REPL Commands / 交互命令
 
@@ -171,10 +192,13 @@ export PATH="$PATH:/path/to/karen-cli"
 |---|---|
 | `> hello world` | Send message to AI / 向 AI 发送消息 |
 | `> /exit` | Quit the session / 退出会话 |
-| `> /model <name>` | Switch provider (claude, openai, siliconflow) / 切换模型提供商 |
+| `> /model <name>` | Switch provider (anthropic, openai, deepseek, siliconflow) / 切换模型提供商 |
 | `> /tools` | List available tools / 列出可用工具 |
 | `> /tasks` | Show task graph status / 显示任务图状态 |
 | `> /plan` | Show or approve/discard plan / 查看或审批计划 |
+| `> /diff` | Show changes since last checkpoint / 显示上次检查点以来的变更 |
+| `> /resume <id>` | Resume from a previous session / 恢复之前的会话 |
+| `> /rollback` | Rollback to last checkpoint / 回滚到上次检查点 |
 | `> /remember <text>` | Save to user memory (permanent) / 保存到用户记忆（永久） |
 | `> /forget <keyword>` | Delete matching memories / 删除匹配的记忆 |
 | `> /memory` | Show memory stats / 显示记忆统计 |
@@ -185,12 +209,12 @@ export PATH="$PATH:/path/to/karen-cli"
 ### Example Session / 示例会话
 
 ```
-$ npm start
-Using provider: anthropic / 使用提供商：anthropic
+$ karen
+Using provider: deepseek / 使用提供商：deepseek
 
 > Read the package.json file
 [AI uses Read tool / AI 使用 Read 工具]
-{ "name": "karen-cli", ... }
+{ "name": "@jhonzs/karen-cli", ... }
 
 > Find all test files
 [AI uses Glob tool / AI 使用 Glob 工具]
@@ -240,7 +264,7 @@ Goodbye! / 再见！
 └─────────────┘      └────────────────┘    └──────────────┘
         │
 ┌───────┴─────────────────────────────────────────────────────┐
-│  Model Provider (Anthropic/OpenAI/SiliconFlow) / 模型提供商  │
+│  Model Provider (Anthropic/OpenAI/DeepSeek/SiliconFlow) / 模型提供商  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -271,7 +295,9 @@ karen-cli/
 │   ├── providers/
 │   │   ├── anthropic.ts      # Claude provider / Claude 提供商
 │   │   ├── openai.ts         # OpenAI provider / OpenAI 提供商
-│   │   └── siliconflow.ts    # SiliconFlow provider / SiliconFlow 提供商
+│   │   ├── deepseek.ts       # DeepSeek provider / DeepSeek 提供商
+│   │   ├── siliconflow.ts    # SiliconFlow provider / SiliconFlow 提供商
+│   │   └── base.ts           # Base provider / 基础提供商
 │   ├── tools/
 │   │   ├── index.ts          # Tool registry / 工具注册表
 │   │   ├── read.ts           # Read file / 读取文件
@@ -349,7 +375,7 @@ npm run dev
 The project uses Node.js built-in test runner with `tsx` for TypeScript execution:  
 本项目使用 Node.js 内置测试运行器，配合 `tsx` 执行 TypeScript：
 
-- **83 tests** across **20 test suites** / **20 个测试套件，83 个测试用例**
+- **244 tests** across **42 test suites** / **42 个测试套件，244 个测试用例**
 - All tests pass with zero regressions / 全部通过，零回归
 - TDD approach: every feature is tested before implementation / 测试驱动开发：每个功能先写测试再实现
 
