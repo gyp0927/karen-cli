@@ -20,10 +20,22 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   />\s*\/dev\/(?:sda\d*|sdb\d*|hd[a-z]\d*)/i,
   // Moving root to /dev/null
   /mv\s+.*\/\s+\/dev\/null/i,
-  // Recursive chmod on root
-  /chmod\s+(?:-[a-zA-Z]*\s+)*.*\s+\/(?:\s|$|;|&&|\|\|)/i,
+  // Recursive chmod on root (any flags containing R or r for recursive)
+  /\bchmod\s+-(?:.*R.*|.*r.*)\b/i,
   // Chown root recursively
   /chown\s+(?:-[a-zA-Z]*\s+)*.*\s+\/(?:\s|$|;|&&|\|\|)/i,
+  // Piped execution into shells (curl | bash, etc.)
+  /\|\s*(?:bash|sh|cmd|powershell|pwsh)/i,
+  // Windows: delete disk files with force/quiet flags
+  /del\s+\/[fqsr]+.*\\[a-zA-Z]:/i,
+  // Windows: format disk
+  /format\s+[a-zA-Z]:/i,
+  // Windows: recursive delete directory
+  /rd\s+\/s\s+\/q/i,
+  // Windows: delete tree command
+  /deltree/i,
+  // Windows: erase files with force/quiet flags
+  /erase\s+\/[fqsr]+/i,
 ];
 
 /** Check if a command contains dangerous patterns. */

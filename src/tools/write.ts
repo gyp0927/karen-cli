@@ -2,10 +2,10 @@ import { Tool, ToolResult } from '../core/types.js';
 import { writeFileSync, mkdirSync, existsSync, copyFileSync } from 'fs';
 import { dirname, join, basename } from 'path';
 import { requireString } from './helpers.js';
-import { safePath } from '../utils/paths.js';
-import { homedir } from 'os';
+import { safePath, getConfigDir } from '../utils/paths.js';
+import { Logger } from '../utils/logger.js';
 
-const BACKUP_DIR = join(homedir(), '.karen', 'backups');
+const BACKUP_DIR = join(getConfigDir(), 'backups');
 
 /** Sensitive file patterns that should trigger a warning before writing. */
 const SENSITIVE_FILE_PATTERNS = [
@@ -47,7 +47,8 @@ function createBackup(filePath: string): string | null {
     const backupPath = join(BACKUP_DIR, backupName);
     copyFileSync(filePath, backupPath);
     return backupPath;
-  } catch {
+  } catch (err) {
+    Logger.warn(`Backup failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }

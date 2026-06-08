@@ -1,7 +1,7 @@
 import { appendFile } from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getConfigDir } from './paths.js';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -15,7 +15,7 @@ export class Logger {
   static setLevel(level: LogLevel): void { Logger.currentLevel = level; }
 
   static enableFile(path?: string): void {
-    const dir = join(homedir(), '.karen');
+    const dir = getConfigDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     Logger.logFile = path || join(dir, 'karen.log');
   }

@@ -1,8 +1,8 @@
 import { Tool, ToolResult } from '../core/types.js';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
-import { safePath } from '../utils/paths.js';
+import { safePath, getConfigDir } from '../utils/paths.js';
+import { Logger } from '../utils/logger.js';
 
 interface EditRecord {
   timestamp: number;
@@ -13,7 +13,7 @@ interface EditRecord {
 
 function isValidEditRecord(r: unknown): r is EditRecord {
   if (!r || typeof r !== 'object') return false;
-  const obj = r as Record<string, unknown>;
+  const obj = r as { [K in keyof EditRecord]: unknown };
   return (
     typeof obj.timestamp === 'number' &&
     typeof obj.filePath === 'string' &&
@@ -22,7 +22,7 @@ function isValidEditRecord(r: unknown): r is EditRecord {
   );
 }
 
-const HISTORY_DIR = join(homedir(), '.karen', 'history');
+const HISTORY_DIR = join(getConfigDir(), 'history');
 
 /** Encapsulates edit history state to enable test isolation and multi-instance support. */
 export class EditHistoryStore {
@@ -86,7 +86,10 @@ export class EditHistoryStore {
         } else {
           this.editHistory = [];
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        Logger.warn(`Failed to load edit history: ${err instanceof Error ? err.message : String(err)}`);
+        this.editHistory = [];
+      }
     }
     this.historyLoaded = true;
   }

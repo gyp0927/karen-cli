@@ -17,9 +17,9 @@ const DANGEROUS_BASH_PATTERNS = [
   // Destructive commands
   /\brm\b/, /\bdd\b/, /\bchmod\b/, /\bchown\b/, /\bsudo\b/, /\bsu\b/,
   // Redirection and pipe to shell
-  />/, /\|\s*rm\b/, /\|\s*sh\b/, /\|\s*bash\b/, /eval\s/, /source\s/,
+  />/, /\|\s*rm\b/, /\|\s*sh\b/, /\|\s*bash\b/, /\|\s*cmd\b/, /\|\s*powershell\b/, /\|\s*pwsh\b/, /eval\s/, /source\s/,
   // Piped curl/wget to shell
-  /curl.+\|\s*sh/, /wget.+\|\s*sh/,
+  /curl.+\|\s*sh/, /wget.+\|\s*sh/, /curl.+\|\s*bash/, /wget.+\|\s*bash/,
   // Command substitution with destructive commands
   /\`.*rm/, /\$\(.*rm/,
   // Reverse shells and network exploits
@@ -27,11 +27,13 @@ const DANGEROUS_BASH_PATTERNS = [
   // Encoded payloads
   /\bbase64\s+-d.*\|.*sh/, /\bxxd\s+-r.*\|.*sh/,
   // Fork bombs and resource exhaustion
-  /:\s*\(\)\s*{/, /\/dev\/zero.*>/, /yes\s+>/, /while\s*:\s*;.*do/,
+  /:\s*\(\)\s*{/, /\/dev\/zero.*>/, /\byes\s+>/, /while\s*:\s*;.*do/,
   // Suspicious process manipulation
   /\bkill\b/, /\bkillall\b/, /\bpkill\b/,
   // File system manipulation
   /\bmkfs\b/, /\bmount\b/, /\bfdisk\b/,
+  // Windows destructive commands
+  /\bdel\b/, /\berase\b/, /\bformat\b/, /\bdeltree\b/, /\brd\b/,
 ];
 
 /**
@@ -84,3 +86,8 @@ export const DEFAULT_POLICY: PermissionPolicy = {
   allowedTools: [],
   deniedTools: [],
 };
+
+/** Check if auto-approve is enabled via environment variable or config. */
+export function isAutoApproveEnabled(): boolean {
+  return process.env.AUTO_APPROVE === 'true' || process.env.AUTO_APPROVE === '1';
+}

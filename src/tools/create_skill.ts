@@ -2,7 +2,7 @@ import { Tool, ToolResult } from '../core/types.js';
 import { SkillManager } from '../skills/manager.js';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getConfigDir } from '../utils/paths.js';
 
 export function createCreateSkillTool(skillManager: SkillManager, onChange?: () => void): Tool {
   return {
@@ -42,7 +42,7 @@ export function createCreateSkillTool(skillManager: SkillManager, onChange?: () 
         body,
       ].join('\n');
 
-      const destPath = join(homedir(), '.karen', 'skills', `${name}.md`);
+      const destPath = join(getConfigDir(), 'skills', `${name}.md`);
       writeFileSync(destPath, frontmatter, 'utf8');
 
       skillManager.reload();

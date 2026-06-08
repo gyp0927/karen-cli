@@ -1,4 +1,37 @@
-import { resolve, normalize } from 'path';
+import { resolve, normalize, join } from 'path';
+import { homedir } from 'os';
+import { existsSync, mkdirSync } from 'fs';
+
+/**
+ * Get the configuration directory, respecting XDG Base Directory Specification.
+ * On Linux/Unix: uses $XDG_CONFIG_HOME or ~/.config/karen
+ * On Windows: uses %LOCALAPPDATA%\karen or ~/.karen
+ * Creates the directory if it doesn't exist.
+ */
+export function getConfigDir(): string {
+  const isWindows = process.platform === 'win32';
+  
+  // Check XDG_CONFIG_HOME (Linux/Unix standard)
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+  if (xdgConfigHome) {
+    const dir = join(xdgConfigHome, 'karen');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+  
+  // Check Windows LOCALAPPDATA
+  if (isWindows && process.env.LOCALAPPDATA) {
+    const dir = join(process.env.LOCALAPPDATA, 'karen');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+  
+  // Fallback to ~/.config/karen (Unix) or ~/.karen (Windows legacy)
+  const home = homedir();
+  const dir = isWindows ? join(home, '.karen') : join(home, '.config', 'karen');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 /**
  * Sanitize a file path to prevent directory traversal attacks.

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from 'fs';
 import { execSync } from 'child_process';
-import { homedir } from 'os';
 import { join } from 'path';
+import { getConfigDir } from '../utils/paths.js';
 import { Logger } from '../utils/logger.js';
 
 interface HealthStatus {
@@ -23,7 +23,7 @@ export function healthCheck(): HealthStatus {
 
   // Disk space (basic check — .karen directory writable)
   try {
-    const dir = join(homedir(), '.karen');
+    const dir = getConfigDir();
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }

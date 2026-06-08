@@ -31,6 +31,8 @@ describe('Config', () => {
   });
 
   it('getConfigPath returns a string path', () => {
-    assert.ok(getConfigPath().includes('.karen'));
+    const path = getConfigPath();
+    assert.ok(typeof path === 'string');
+    assert.ok(path.endsWith('config.json'));
   });
 });

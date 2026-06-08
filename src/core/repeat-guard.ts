@@ -68,7 +68,9 @@ export class RepeatGuard {
       };
     }
 
-    if (maxRepeat > 0) {
+    // Only warn when approaching the limit, not on first repeat
+    // maxRepeat=1 is normal (called once before), allow up to maxRepeats-1
+    if (maxRepeat >= Math.max(1, this.config.maxRepeats - 1)) {
       return {
         isRepeat: true,
         repeatCount: maxRepeat,

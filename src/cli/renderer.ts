@@ -7,8 +7,9 @@ const RESET = '\x1b[0m';
 const GREEN = '\x1b[1;32m';
 const CYAN = '\x1b[36m';
 const BLUE = '\x1b[1;34m';
+const YELLOW = '\x1b[1;33m';
 
-export { GRAY, RESET, GREEN, CYAN, BLUE };
+export { GRAY, RESET, GREEN, CYAN, BLUE, YELLOW };
 
 /** Return the terminal display width of a single Unicode codepoint. */
 export function charWidth(char: string): number {
@@ -166,4 +167,24 @@ export function closeAssistantLine(lineLength: number, hasContent: boolean): voi
   const maxLine = width - 4;
   const pad = maxLine - lineLength;
   process.stdout.write(' '.repeat(Math.max(0, pad)) + CYAN + ' │' + RESET);
+}
+
+/** Draw the tool-use box top border. */
+export function drawToolUseTop(toolName: string, detail: string): void {
+  const width = getTermWidth();
+  const title = ` 🔧 ${toolName} `;
+  const subtitle = detail ? `  ${detail} ` : '';
+  const totalTitleLen = title.length + subtitle.length;
+  const top = '┌' + '─'.repeat(4) + title + '─'.repeat(Math.max(2, width - 6 - totalTitleLen)) + '┐';
+  console.log('');
+  console.log(YELLOW + top + RESET);
+  process.stdout.write(YELLOW + '│' + RESET);
+}
+
+/** Draw the tool-use box bottom border. */
+export function drawToolUseBot(): void {
+  const width = getTermWidth();
+  const bot = '└' + '─'.repeat(width - 2) + '┘';
+  console.log(YELLOW + bot + RESET);
+  console.log('');
 }

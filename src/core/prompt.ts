@@ -31,6 +31,11 @@ const PROVIDER_MODS: Record<string, ProviderPromptMod> = {
     examples: '',
     toolReminders: '',
   },
+  deepseek: {
+    prefix: '\n[DeepSeek: Use tool calls FIRST. Zero preamble. DeepSeek API format = function calls.]',
+    examples: '',
+    toolReminders: '\n⚠️ You MUST call tools immediately. ZERO preamble. If the user says "读一下" or "看一下" or "找一下" → tool call NOW.',
+  },
   siliconflow: {
     prefix: '\n[DeepSeek mode: Call tools FIRST. No text before tool calls.]',
     examples: '',
@@ -135,7 +140,10 @@ async function buildMemoryContext(memoryManager: MemoryManager | undefined, cwd:
     if (allMemories.length > 0) {
       return `\n\n--- Memory (cwd: ${cwd}) ---\n` + allMemories.map(m => m.summary || m.content).join('\n');
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    const { Logger } = await import('../utils/logger.js');
+    Logger.debug(`buildMemoryContext failed: ${err instanceof Error ? err.message : String(err)}`, 'prompt');
+  }
 
   return '';
 }

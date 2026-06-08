@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getConfigDir } from '../utils/paths.js';
 import { emitKeypressEvents } from 'readline';
 
-const TRUSTED_PATH = join(homedir(), '.karen', 'trusted.json');
+const TRUSTED_PATH = join(getConfigDir(), 'trusted.json');
 
 function loadTrusted(): string[] {
   if (!existsSync(TRUSTED_PATH)) return [];
@@ -16,7 +16,7 @@ function loadTrusted(): string[] {
 }
 
 function saveTrusted(paths: string[]): void {
-  const dir = join(homedir(), '.karen');
+  const dir = getConfigDir();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(TRUSTED_PATH, JSON.stringify(paths, null, 2), 'utf8');
 }

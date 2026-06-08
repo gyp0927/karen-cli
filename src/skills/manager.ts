@@ -1,7 +1,7 @@
 import { SkillLoader } from './loader.js';
 import { Skill } from './types.js';
-import { homedir } from 'os';
 import { join, extname } from 'path';
+import { getConfigDir } from '../utils/paths.js';
 import { mkdirSync, existsSync, rmSync } from 'fs';
 import { resilientFetch } from '../utils/http.js';
 
@@ -11,7 +11,7 @@ export class SkillManager {
 
   constructor(skillsDir?: string) {
     this.loader = new SkillLoader();
-    this.skillsDir = skillsDir || join(homedir(), '.karen', 'skills');
+    this.skillsDir = skillsDir || join(getConfigDir(), 'skills');
     this.ensureDir();
     this.reload();
   }

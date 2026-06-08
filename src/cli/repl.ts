@@ -13,6 +13,7 @@ import {
   showInputTopBorder, showInputBottomBorder, clearInputArea,
   coloredPrompt, buildStatusBar,
   drawUserBox, drawAssistantTop, drawAssistantBot, closeAssistantLine,
+  drawToolUseTop, drawToolUseBot,
   GRAY, RESET, CYAN, BLUE,
 } from './renderer.js';
 import { searchHistory } from './history-search.js';
@@ -47,6 +48,9 @@ export class Repl {
   private memoryManager?: MemoryManager;
   private planManager?: PlanManager;
   private history: Message[] = [];
+  private activeToolTimers: Map<string, ReturnType<typeof setInterval>> = new Map();
+  private activeToolSpinners: Map<string, number> = new Map();
+  private toolOutputBuffer: string = '';
   private boxWasClosed = false;
   private commandHistory: string[] = [];
   private historyIndex = -1;
@@ -75,6 +79,8 @@ export class Repl {
     if (options.enablePermissionChecks !== false) {
       this.loop.onNeedPermission = this.handlePermissionRequest.bind(this);
     }
+    this.loop.onToolStart = this.handleToolStart.bind(this);
+    this.loop.onToolEnd = this.handleToolEnd.bind(this);
   }
 
   async start(): Promise<void> {
@@ -383,6 +389,53 @@ export class Repl {
       this.boxWasClosed = true;
     }
     return allowed;
+  }
+
+  private handleToolStart(toolName: string, args: Record<string, unknown>): void {
+    // Build a concise description
+    let detail = '';
+    if (toolName === 'Bash') {
+      detail = String(args.command || '');
+    } else if (toolName === 'Write' || toolName === 'Edit') {
+      detail = String(args.file_path || '');
+    } else if (toolName === 'Read') {
+      detail = String(args.file_path || '');
+    } else if (toolName === 'Grep') {
+      detail = String(args.pattern || '');
+    } else {
+      detail = String(args.file_path || args.path || args.operation || JSON.stringify(args).slice(0, 60));
+    }
+    if (detail.length > 50) detail = detail.slice(0, 50) + '...';
+
+    const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let spinnerIdx = 0;
+
+    // Print the tool-use box top
+    drawToolUseTop(toolName, detail);
+
+    // Start spinner timer
+    const timer = setInterval(() => {
+      process.stdout.write(`\r\x1b[2K  \x1b[90m${spinner[spinnerIdx]}\x1b[0m \x1b[90mRunning...\x1b[0m`);
+      spinnerIdx = (spinnerIdx + 1) % spinner.length;
+    }, 120);
+
+    this.activeToolTimers.set(toolName, timer);
+    this.activeToolSpinners.set(toolName, spinnerIdx);
+  }
+
+  private handleToolEnd(toolName: string, _args: Record<string, unknown>, success: boolean): void {
+    const timer = this.activeToolTimers.get(toolName);
+    if (timer) {
+      clearInterval(timer);
+      this.activeToolTimers.delete(toolName);
+    }
+    this.activeToolSpinners.delete(toolName);
+
+    // Clear the spinner line and close the box
+    process.stdout.write('\r\x1b[2K');
+    const status = success ? '\x1b[32m✓ Done\x1b[0m' : '\x1b[31m✗ Failed\x1b[0m';
+    console.log(`  ${status}`);
+    drawToolUseBot();
   }
 
   private async handleCommand(cmd: ReturnType<typeof parseCommand>, input: string): Promise<void> {

@@ -3,7 +3,7 @@
  * Extracted from bin/karen.ts to keep the entry point lean.
  */
 import { join } from 'path';
-import { homedir } from 'os';
+import { getConfigDir } from './utils/paths.js';
 import { AgentLoop } from './core/loop.js';
 import { MemoryManager } from './memory/manager.js';
 import { TaskManager } from './tasks/manager.js';
@@ -19,6 +19,8 @@ import { SkillManager } from './skills/manager.js';
 import { loadConfig } from './core/config.js';
 import { IProvider, Tool } from './core/types.js';
 import { DEFAULTS, TIMEOUTS } from './core/constants.js';
+import { PermissionManager } from './permissions/manager.js';
+import { isAutoApproveEnabled } from './permissions/policies.js';
 
 import { createReadTool } from './tools/read.js';
 import { createWriteTool } from './tools/write.js';
@@ -71,17 +73,17 @@ function createAllTools(taskManager: TaskManager, planManager: PlanManager, jobM
   ];
 }
 
-export async function createApp(provider: IProvider, cwd: string): Promise<AppContext> {
+export async function createApp(provider: IProvider, cwd: string, options?: { autoApprove?: boolean }): Promise<AppContext> {
   const config = loadConfig();
 
   const skillManager = new SkillManager();
-  const memoryManager = new MemoryManager(join(homedir(), '.karen', 'memory'));
+  const memoryManager = new MemoryManager(join(getConfigDir(), 'memory'));
   const taskManager = new TaskManager();
   const hookManager = new HookManager();
   const compactor = new ContextCompactor(DEFAULTS.COMPACTOR_MAX_TOKENS, DEFAULTS.COMPACTOR_KEEP_RECENT);
   const costTracker = new CostTracker(
     config.budget || { dailyUsd: 10.0, sessionUsd: 5.0 },
-    join(homedir(), '.karen', 'costs.json')
+    join(getConfigDir(), 'costs.json')
   );
   const stormBreaker = new StormBreaker({ requestTimeoutMs: TIMEOUTS.LLM_REQUEST, maxRetries: 3, circuitThreshold: DEFAULTS.CIRCUIT_THRESHOLD });
   const planManager = new PlanManager();
@@ -102,11 +104,16 @@ export async function createApp(provider: IProvider, cwd: string): Promise<AppCo
   const skills = skillManager.getSkills();
   if (skills.length > 0) console.log(`\x1b[90mLoaded ${skills.length} skill(s)\x1b[0m\n`);
 
+  // Determine auto-approve: CLI flag > env var > config file
+  const autoApprove = options?.autoApprove ?? isAutoApproveEnabled() ?? config.autoApprove ?? false;
+  const permissionManager = new PermissionManager({ autoApprove });
+
   const loop = new AgentLoop({
     provider, tools, skills, cwd,
     memoryManager, taskManager, hookManager, compactor,
     costTracker, stormBreaker, planManager, repeatGuard, transcriptLogger,
     enableSchemaFlatten: true,
+    permissionManager,
   });
 
   // Auto-checkpoint
@@ -119,12 +126,12 @@ export async function createApp(provider: IProvider, cwd: string): Promise<AppCo
   // Runtime tools
   loop.addTool(createSkillTool(skillManager, () => { loop.setSkills(skillManager.getSkills()); }));
   loop.addTool(createCreateSkillTool(skillManager, () => { loop.setSkills(skillManager.getSkills()); }));
-  loop.addTool(createAgentTool(provider, loop.getTools(), {
+  loop.addTool(createAgentTool(provider, loop.getTools().filter(t => t.name !== 'Agent'), {
     memoryManager,
     taskManager,
     transcriptLogger,
   }));
-  loop.addTool(createSubAgentTool(provider, loop.getTools(), {
+  loop.addTool(createSubAgentTool(provider, loop.getTools().filter(t => t.name !== 'sub_agent'), {
     memoryManager,
     taskManager,
     transcriptLogger,

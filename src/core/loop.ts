@@ -16,6 +16,7 @@ import { Logger } from '../utils/logger.js';
 import { PlanManager } from '../plan/manager.js';
 import { RepeatGuard } from './repeat-guard.js';
 import { TranscriptLogger } from '../transcript/logger.js';
+import { getConfigDir } from '../utils/paths.js';
 import { buildSystemPrompt } from './prompt.js';
 import { KarenMode, MODES, MODE_ORDER } from './modes.js';
 import { validateResult } from '../tools/validate.js';
@@ -44,6 +45,8 @@ export interface AgentLoopConfig extends LoopConfig {
   permissionManager?: PermissionManager;
   onStream?: (chunk: string) => void;
   onToolUse?: (toolName: string, args: Record<string, unknown>) => void;
+  onToolStart?: (toolName: string, args: Record<string, unknown>) => void;
+  onToolEnd?: (toolName: string, args: Record<string, unknown>, success: boolean) => void;
   onNeedPermission?: (toolName: string, args: Record<string, unknown>) => Promise<boolean>;
   skills?: Skill[];
   cwd?: string;
@@ -68,6 +71,8 @@ export class AgentLoop {
   private permissionManager: PermissionManager;
   private onStream?: (chunk: string) => void;
   onToolUse?: (toolName: string, args: Record<string, unknown>) => void;
+  onToolStart?: (toolName: string, args: Record<string, unknown>) => void;
+  onToolEnd?: (toolName: string, args: Record<string, unknown>, success: boolean) => void;
   onNeedPermission?: (toolName: string, args: Record<string, unknown>) => Promise<boolean>;
   private skills: Skill[];
   private cwd: string;
@@ -93,6 +98,8 @@ export class AgentLoop {
     this.permissionManager = config.permissionManager || new PermissionManager();
     this.onStream = config.onStream;
     this.onToolUse = config.onToolUse;
+    this.onToolStart = config.onToolStart;
+    this.onToolEnd = config.onToolEnd;
     this.onNeedPermission = config.onNeedPermission;
     this.skills = config.skills || [];
     this.cwd = config.cwd || process.cwd();
@@ -126,6 +133,17 @@ export class AgentLoop {
 
   addTool(tool: Tool): void {
     this.registry.register(tool);
+    this.updateToolListCache();
+  }
+
+  private cachedToolList: string | null = null;
+
+  private updateToolListCache(): void {
+    this.cachedToolList = this.registry.list().map(t => {
+      // Truncate descriptions to first sentence for speed
+      const desc = t.description.split('.')[0] + '.';
+      return `- ${t.name}: ${desc}`;
+    }).join('\n');
   }
 
   getSkills(): Skill[] {
@@ -192,14 +210,15 @@ export class AgentLoop {
 
     // Periodic cleanup of expired memories (every 10 runs)
     if (this.memoryManager && this.runCounter % 10 === 0) {
-      this.memoryManager.cleanup().catch(() => {});
+      this.memoryManager.cleanup().catch((err) => {
+        Logger.warn(`Memory cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
     }
 
-    const toolList = this.registry.list().map(t => {
-      // Truncate descriptions to first sentence for speed
-      const desc = t.description.split('.')[0] + '.';
-      return `- ${t.name}: ${desc}`;
-    }).join('\n');
+    if (!this.cachedToolList) {
+      this.updateToolListCache();
+    }
+    const toolList = this.cachedToolList || '';
 
     // Match skills by trigger keywords (uses pre-computed lowercase triggers)
     const lowerInput = userInput.toLowerCase();
@@ -372,6 +391,7 @@ export class AgentLoop {
       const toolResults: Message[] = [];
       const executeOne = async (tc: import('./types.js').ToolCall): Promise<Message> => {
         this.onToolUse?.(tc.name, tc.arguments);
+        this.onToolStart?.(tc.name, tc.arguments);
         this.transcriptLogger?.logToolCall(tc.name, tc.arguments);
         const tool = this.registry.get(tc.name);
         let result: ToolResult;
@@ -389,6 +409,7 @@ export class AgentLoop {
           }
         }
 
+        this.onToolEnd?.(tc.name, tc.arguments, result.success);
         this.transcriptLogger?.logToolResult(tc.name, result.success ? result.output : '', result.success ? undefined : result.error);
         return {
           role: 'tool' as const,
@@ -509,6 +530,7 @@ export class AgentLoop {
   }
 
   private sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionSaveInProgress = false;
 
   /** Cancel pending session save (call on shutdown). */
   cancelPendingSaves(): void {
@@ -519,26 +541,31 @@ export class AgentLoop {
   }
 
   private async saveSession(messages: Message[]): Promise<void> {
-    // Throttle: debounce to avoid excessive writes, always save latest state
-    if (this.sessionSaveTimer) {
-      clearTimeout(this.sessionSaveTimer);
-    }
-    const timer = setTimeout(async () => {
-      if (this.sessionSaveTimer !== timer) return; // A newer timer was set
-      this.sessionSaveTimer = null;
-      try {
-        const { writeFileSync, mkdirSync, existsSync } = await import('fs');
-        const { join } = await import('path');
-        const { homedir } = await import('os');
-        const dir = join(homedir(), '.karen');
-        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-        const history = messages.filter(m => m.role === 'user' || m.role === 'assistant').slice(-50);
-        writeFileSync(join(dir, 'session.json'), JSON.stringify({ updatedAt: Date.now(), cwd: this.cwd, history }, null, 2), 'utf8');
-      } catch (err) {
-        Logger.debug(`Session save failed: ${err instanceof Error ? err.message : String(err)}`, 'loop');
+    if (this.sessionSaveInProgress) return;
+    this.sessionSaveInProgress = true;
+    try {
+      // Throttle: debounce to avoid excessive writes, always save latest state
+      if (this.sessionSaveTimer) {
+        clearTimeout(this.sessionSaveTimer);
       }
-    }, 2000);
-    this.sessionSaveTimer = timer;
+      const timer = setTimeout(async () => {
+        if (this.sessionSaveTimer !== timer) return; // A newer timer was set
+        this.sessionSaveTimer = null;
+        try {
+          const { writeFileSync, mkdirSync, existsSync } = await import('fs');
+          const { join } = await import('path');
+          const dir = getConfigDir();
+          if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+          const history = messages.filter(m => m.role === 'user' || m.role === 'assistant').slice(-50);
+          writeFileSync(join(dir, 'session.json'), JSON.stringify({ updatedAt: Date.now(), cwd: this.cwd, history }, null, 2), 'utf8');
+        } catch (err) {
+          Logger.debug(`Session save failed: ${err instanceof Error ? err.message : String(err)}`, 'loop');
+        }
+      }, 2000);
+      this.sessionSaveTimer = timer;
+    } finally {
+      this.sessionSaveInProgress = false;
+    }
   }
 
   /** Load previous session history (for /resume). */
@@ -546,8 +573,7 @@ export class AgentLoop {
     try {
       const { readFileSync, existsSync } = await import('fs');
       const { join } = await import('path');
-      const { homedir } = await import('os');
-      const path = join(homedir(), '.karen', 'session.json');
+      const path = join(getConfigDir(), 'session.json');
       if (!existsSync(path)) return [];
       const data = JSON.parse(readFileSync(path, 'utf8'));
       return Array.isArray(data.history) ? data.history : [];

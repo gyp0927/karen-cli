@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getConfigDir } from '../utils/paths.js';
+import { Logger } from '../utils/logger.js';
 
 export interface KarenConfig {
   provider?: 'anthropic' | 'openai' | 'deepseek' | 'siliconflow';
@@ -34,9 +35,11 @@ export interface KarenConfig {
   backupOnWrite?: boolean;
   /** Custom system prompt additions */
   customSystemPrompt?: string;
+  /** Auto-approve safe operations in non-interactive mode (default: false) */
+  autoApprove?: boolean;
 }
 
-const CONFIG_DIR = join(homedir(), '.karen');
+const CONFIG_DIR = getConfigDir();
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 
 const DEFAULTS: Required<KarenConfig> = {
@@ -55,6 +58,7 @@ const DEFAULTS: Required<KarenConfig> = {
   maxBackgroundProcesses: 50,
   backupOnWrite: true,
   customSystemPrompt: '',
+  autoApprove: false,
 };
 
 /** Encapsulated config storage for test isolation and single-responsibility. */
@@ -81,9 +85,10 @@ export class ConfigStore {
   }
 
   save(config: KarenConfig): void {
+    const validated = validateConfig(config);
     if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
-    writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
-    this.cached = config;
+    writeFileSync(CONFIG_PATH, JSON.stringify(validated, null, 2), 'utf8');
+    this.cached = validated;
   }
 
   getValue<K extends keyof KarenConfig>(key: K): Required<KarenConfig>[K] {
@@ -135,4 +140,36 @@ export function setConfigValue<K extends keyof KarenConfig>(key: K, value: Karen
 /** Reset config to defaults */
 export function resetConfig(): void {
   defaultStore.reset();
+}
+
+function validateConfig(config: KarenConfig): KarenConfig {
+  const validated: KarenConfig = { ...config };
+
+  // Validate API keys format
+  if (validated.apiKeys) {
+    for (const [provider, key] of Object.entries(validated.apiKeys)) {
+      if (key && typeof key === 'string' && !key.startsWith('sk-') && !key.startsWith('sk-ant-')) {
+        Logger.warn(`API key for ${provider} doesn't start with expected prefix`);
+      }
+    }
+  }
+
+  // Validate budget values
+  if (validated.budget) {
+    if (validated.budget.dailyUsd !== undefined && validated.budget.dailyUsd < 0) {
+      throw new Error('dailyUsd budget cannot be negative');
+    }
+    if (validated.budget.sessionUsd !== undefined && validated.budget.sessionUsd < 0) {
+      throw new Error('sessionUsd budget cannot be negative');
+    }
+  }
+
+  // Validate maxIterations
+  if (validated.maxIterations !== undefined) {
+    if (validated.maxIterations < 1 || validated.maxIterations > 1000) {
+      throw new Error('maxIterations must be between 1 and 1000');
+    }
+  }
+
+  return validated;
 }

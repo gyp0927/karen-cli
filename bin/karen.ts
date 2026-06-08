@@ -21,7 +21,7 @@ function createProvider(name: string): IProvider | null {
   const config = loadConfig();
   const apiKeys = config.apiKeys || {};
   const key = process.env[`${name.toUpperCase()}_API_KEY`]
-    || (apiKeys as Record<string, string | undefined>)[name]
+    || apiKeys[name as keyof typeof apiKeys]
     || process.env.ANTHROPIC_API_KEY; // fallback for legacy
   const model = process.env.KAREN_MODEL || process.env[`${name.toUpperCase()}_MODEL`];
   if (!key) return null;
@@ -69,8 +69,9 @@ async function main() {
     console.log('  --version, -v    Show version');
     console.log('  --help, -h       Show this help');
     console.log('  --model <name>          Start with specific model');
-    console.log('  --print <message>        Non-interactive: run one prompt and exit');
-    console.log('  --output-format json     JSON output (with --print)');
+  console.log('  --print <message>        Non-interactive: run one prompt and exit');
+  console.log('  --auto-approve           Auto-approve safe operations in non-interactive mode');
+  console.log('  --output-format json     JSON output (with --print)');
     console.log('  --resume <id>            Resume from session');
     console.log('\nEnvironment:');
     console.log('  KAREN_PROVIDER        Default provider (anthropic/openai/deepseek/siliconflow)');
@@ -92,6 +93,7 @@ async function main() {
   const outputJson = args.includes('--output-format') && args[args.indexOf('--output-format') + 1] === 'json';
   const resumeSession = args.indexOf('--resume');
   const resumeId = resumeSession !== -1 ? args[resumeSession + 1] : undefined;
+  const autoApprove = args.includes('--auto-approve');
 
   const cwd = process.cwd();
   const provider = getProvider();
@@ -101,7 +103,7 @@ async function main() {
 
   healthCheck();
 
-  const { loop, skillManager, memoryManager, planManager, transcriptLogger, jobManager } = await createApp(provider, cwd);
+  const { loop, skillManager, memoryManager, planManager, transcriptLogger, jobManager } = await createApp(provider, cwd, { autoApprove });
 
   // --print mode: run one turn and exit
   if (printMessage) {
@@ -129,7 +131,9 @@ async function main() {
       const dest = join(homedir(), '.karen', 'skills', `${s.name}.json`);
       if (!existsSync(dest)) writeFileSync(dest, JSON.stringify(s, null, 2), 'utf8');
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    Logger.warn(`Failed to load built-in skills: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Graceful shutdown
   const shutdown = () => {

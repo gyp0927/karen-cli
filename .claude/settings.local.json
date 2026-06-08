@@ -71,7 +71,10 @@
       "Bash(npm run *)",
       "Bash(cmd *)",
       "PowerShell([Environment]::GetEnvironmentVariable\\(\"ANTHROPIC_AUTH_TOKEN\", \"User\"\\))",
-      "PowerShell([Environment]::GetEnvironmentVariable\\(\"ANTHROPIC_AUTH_TOKEN\", \"Machine\"\\); echo \"---\"; [Environment]::GetEnvironmentVariable\\(\"ANTHROPIC_AUTH_TOKEN\", \"Process\"\\))"
+      "PowerShell([Environment]::GetEnvironmentVariable\\(\"ANTHROPIC_AUTH_TOKEN\", \"Machine\"\\); echo \"---\"; [Environment]::GetEnvironmentVariable\\(\"ANTHROPIC_AUTH_TOKEN\", \"Process\"\\))",
+      "Bash(npm view *)",
+      "Bash(npm whoami *)",
+      "Bash(npm publish *)"
     ]
   }
 }

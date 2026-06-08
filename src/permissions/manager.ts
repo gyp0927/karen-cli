@@ -1,17 +1,25 @@
+import { Logger } from '../utils/logger.js';
 import { SENSITIVE_TOOLS, isBashDangerous } from './policies.js';
 
 export interface PermissionManagerOptions {
   confirm?: (toolName: string, args: Record<string, unknown>) => Promise<boolean>;
+  autoApprove?: boolean;
 }
 
 export class PermissionManager {
   private confirm: (toolName: string, args: Record<string, unknown>) => Promise<boolean>;
+  private autoApprove: boolean;
 
   constructor(options: PermissionManagerOptions = {}) {
-    this.confirm = options.confirm || (async () => {
-      // Default: deny operations that reach this fallback.
-      // Safe operations (non-sensitive Bash, Write, Edit) are already filtered by check().
-      // Only dangerous operations reach here; deny them by default.
+    this.autoApprove = options.autoApprove ?? false;
+    this.confirm = options.confirm || (async (toolName: string, args: Record<string, unknown>) => {
+      // No confirm callback provided (non-interactive mode)
+      if (this.autoApprove) {
+        // Auto-approve is enabled, but still deny dangerous operations
+        Logger.warn(`Permission denied for ${toolName}: dangerous operation requires explicit confirmation even with auto-approve enabled`, 'permissions');
+        return false;
+      }
+      Logger.warn(`Permission denied for ${toolName}: no confirm callback provided in non-interactive mode`, 'permissions');
       return false;
     });
   }
@@ -30,7 +38,9 @@ export class PermissionManager {
       }
     }
 
-    // Write and Edit require explicit user confirmation (removed auto-approve).
+    // Write and Edit require explicit user confirmation.
+    // In non-interactive mode with autoApprove, safe non-Bash operations are still blocked
+    // because they are considered sensitive (Write/Edit).
 
     return this.confirm(toolName, args);
   }

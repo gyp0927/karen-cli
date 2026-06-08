@@ -4,8 +4,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ListToolsResult } from '@modelcontextprotocol/sdk/types.js';
-import { homedir } from 'os';
 import { join } from 'path';
+import { getConfigDir } from '../utils/paths.js';
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 
 interface McpServerConfig {
@@ -20,7 +20,7 @@ interface McpConfig {
   servers: McpServerConfig[];
 }
 
-const MCP_CONFIG_PATH = join(homedir(), '.karen', 'mcp.json');
+const MCP_CONFIG_PATH = join(getConfigDir(), 'mcp.json');
 
 /** Type guard to validate parsed MCP config shape at runtime. */
 function isMcpConfig(value: unknown): value is McpConfig {
@@ -56,7 +56,7 @@ function loadMcpConfig(): McpConfig {
 }
 
 function saveMcpConfig(config: McpConfig): void {
-  const dir = join(homedir(), '.karen');
+  const dir = getConfigDir();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(MCP_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
 }
